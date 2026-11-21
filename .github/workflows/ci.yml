@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  luacheck:
+    name: Luacheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: nebularg/actions-luacheck@v1
+        with:
+          files: '.'
+          args: '--no-color -q'
+
+  toc-validation:
+    name: TOC validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Verify TOC file references exist
+        run: |
+          EXIT_CODE=0
+          while IFS= read -r toc; do
+            tocdir="$(dirname "$toc")"
+            while IFS= read -r line; do
+              line="$(echo "$line" | sed 's/\r$//')"
+              [[ -z "$line" ]] && continue
+              [[ "$line" =~ ^## ]] && continue
+              filepath="$tocdir/$(echo "$line" | tr '\\' '/')"
+              if [[ ! -f "$filepath" ]]; then
+                echo "FAIL: $filepath listed in $toc but does not exist"
+                EXIT_CODE=1
+              fi
+            done < "$toc"
+          done < <(git ls-files '*.toc')
+          exit $EXIT_CODE
+
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: leafo/gh-actions-lua@v10
+        with:
+          luaVersion: '5.4'
+      - name: Profile rules
+        run: lua tools/tests/profiles_test.lua
+      - name: The addon in a fake client, both ways a key's release can be sent
+        run: |
+          status=0
+          for model in captured relookup; do
+            for test in layers window; do
+              echo "== $test ($model)"
+              lua tools/tests/run.lua "tools/tests/${test}_test.lua" "$model" || status=1
+            done
+          done
+          exit $status

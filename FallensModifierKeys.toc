@@ -1,0 +1,18 @@
+## Interface: 16001, 120105, 120107
+## Title: Fallen's Modifier Keys
+## Notes: Turn any key into a modifier. Hold it and your action keys press another action bar.
+## Author: justawower
+## Version: 1.0.0
+## IconTexture: Interface\Icons\INV_Misc_Key_14
+## Category: Action Bars
+## AddonCompartmentFunc: FallensModifierKeys_OnAddonCompartmentClick
+## SavedVariables: FallensModifierKeysDB
+## DefaultState: enabled
+
+Core\Profiles.lua
+Core\Core.lua
+Core\Bars.lua
+Core\Layers.lua
+Core\Model.lua
+UI\Show.lua
+UI\Window.lua
