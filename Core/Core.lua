@@ -9,7 +9,9 @@ function FallensModifierKeys_AttachDevTools(take) take(ns) end
 -- the dev addon swaps this for its log
 function ns.Log() end
 
-function ns.Say(msg) DEFAULT_CHAT_FRAME:AddMessage("|cffffd100Fallen's Modifier Keys:|r " .. msg) end
+ns.TITLE = "Fallen's Modifier Keys and Action Bar Pages"
+
+function ns.Say(msg) DEFAULT_CHAT_FRAME:AddMessage("|cffffd100" .. ns.TITLE .. ":|r " .. msg) end
 
 -- red, where the game says what it cannot do
 function ns.Warn(why)

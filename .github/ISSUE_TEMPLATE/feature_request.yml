@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        This tracker is for **Fallen's Modifier Keys**: its folder is `FallensModifierKeys` and its window opens with `/fmk`.
+        This tracker is for **Fallen's Modifier Keys and Action Bar Pages**: its folder is `FallensModifierKeys` and its window opens with `/fmk`.
   - type: textarea
     id: request
     attributes:

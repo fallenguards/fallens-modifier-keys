@@ -1,5 +1,5 @@
 ## Interface: 16001, 120105, 120107
-## Title: Fallen's Modifier Keys
+## Title: Fallen's Modifier Keys and Action Bar Pages
 ## Notes: Turn any key into a modifier. Hold it and your action keys press another action bar.
 ## Author: justawower
 ## Version: 1.0.0

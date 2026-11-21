@@ -1,4 +1,4 @@
-# Fallen's Modifier Keys
+# Fallen's Modifier Keys and Action Bar Pages
 
 Turn any key or mouse button into a modifier, for World of Warcraft. Hold it and the keys you press abilities with press another action bar. Let go and they are your own again.
 

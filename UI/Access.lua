@@ -7,7 +7,7 @@ local A = {}
 ns.Access = A
 local Window = ns.Window
 
-local TITLE = "Fallen's Modifier Keys"
+local TITLE = ns.TITLE
 local TEXT = {
     tip = "Click to set up your modifier keys. Drag to move this button.",
 }

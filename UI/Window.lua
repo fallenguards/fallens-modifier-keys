@@ -12,7 +12,7 @@ local UI = {}
 ns.Window = UI
 local Model, Bars, Profiles = ns.Model, ns.Bars, ns.Profiles
 
-local NAME, TITLE = "FallensModifierKeysWindow", "Fallen's Modifier Keys"
+local NAME, TITLE = "FallensModifierKeysWindow", ns.TITLE
 local WIDTH, EDGE, TOP, GAP, LINE = 560, 18, 44, 8, 24
 local INSIDE = WIDTH - EDGE * 2
 -- one line of a modifier key: key, how it works, what changes, the bar, minus, plus

@@ -169,7 +169,7 @@ pin.scripts.OnDragStop(pin)
 check(math.abs(pin.point[4]) < 1 and pin.point[5] > 70 and pin.scripts.OnUpdate == nil
     and math.abs(FallensModifierKeysDB.minimap - 90) < 1, "dragged above the minimap, it sits at its top, and that is kept")
 local listed = Settings.listed
-check(listed ~= nil and listed.title == "Fallen's Modifier Keys", "the addon has a page in the game's options")
+check(listed ~= nil and listed.title == "Fallen's Modifier Keys and Action Bar Pages", "the addon has a page in the game's options")
 listed.page:Show()
 check(window:GetParent() == listed.page and window:IsVisible() and not NS.Window.Shown(),
     "its page shows the same setup, in place of the window")
