@@ -1,7 +1,8 @@
 local _, ns = ...
 -- luacheck: globals SLASH_FALLENSMODIFIERKEYS1 SLASH_FALLENSMODIFIERKEYS2 SlashCmdList
 -- luacheck: globals FallensModifierKeys_OnAddonCompartmentClick
--- luacheck: read globals CreateFrame UIParent InCombatLockdown C_Timer GetTime GameTooltip
+-- luacheck: read globals CreateFrame UIParent InCombatLockdown C_Timer GetTime GameTooltip GetBindingText
+-- luacheck: read globals CreateKeyChordStringUsingMetaKeyState NineSliceUtil
 
 -- The one window: the action keys, the hold keys, each on a line. /fmk opens
 -- it, and it opens by itself the first time the addon is loaded.
@@ -10,39 +11,43 @@ ns.Window = UI
 local Model, Bars, Profiles = ns.Model, ns.Bars, ns.Profiles
 
 local NAME, TITLE = "FallensModifierKeysWindow", "Fallen's Modifier Keys"
-local WIDTH, EDGE, TOP, GAP, LINE = 480, 18, 34, 8, 24
+local WIDTH, EDGE, TOP, GAP, LINE = 560, 18, 44, 8, 24
 local INSIDE = WIDTH - EDGE * 2
-local KEY_W, WHAT_W, TO_W, SMALL_W, KEYS_W = 96, 140, 130, 24, 230
+-- one line of a modifier key: key, how it works, what changes, the bar, minus, plus
+local KEY_W, MODE_W, WHAT_W, TO_W, SMALL_W, KEYS_W, ROW_GAP = 84, 84, 150, 136, 24, 230, 4
+-- the twelve key boxes: as wide as the window lets twelve be
+local BOX_GAP, NUMBER_H = 3, 14
+local BOX_W = math.floor((INSIDE - BOX_GAP * (Model.SPOTS - 1)) / Model.SPOTS)
 -- floors: a button grows to its text
 local BUTTON_FLOOR, CHROME = 80, 24
 
 local TEXT = {
     intro = "Hold a key and your action keys press another bar. Let go and they are your own again.",
     keysHead = "1. Your action keys",
-    keysNote = "The keys you press abilities with.",
+    keysNote = "The keys your bars will show when your modifier is held. Click a box and press its key.",
+    waitSpot = "Press the key for box %d. Backspace empties it, Escape cancels.",
+    waiting = "...",
     keysOf = "The keys of %s",
-    ownKeys = "My own keys",
-    addKey = "Add a key",
-    dropKey = "Remove last",
-    noKeys = "No key yet.",
-    holdsHead = "2. Your hold keys",
-    holdsNote = "A key you hold down. It stops doing what it did before.",
-    addHold = "Add a hold key",
+    ownKeys = "Custom key list",
+    holdsHead = "2. Your modifier (keys you'll hold) keys",
+    holdsWarn = "Warning: this key will now only serve to activate the action bar you set here.",
+    hold = "Hold",
+    tap = "Tap",
+    modeTip = "Hold: its bar is in use while the key is down. Tap: after a tap, for the next key you press.",
+    addHold = "Add a modifier key",
     press = "Press a key",
-    waitHold = "Press the key or mouse button to hold. Escape cancels.",
-    waitKey = "Press the key to add. Escape cancels.",
+    waitHold = "Press the key or mouse button to use as a modifier. Escape cancels.",
     keysPress = "Action keys press",
     shows = "%s shows",
     hidden = "%s (hidden)",
-    noMore = "It no longer does %s.",
     tryHead = "3. Try it",
-    tryNote = "Hold a hold key now: the bar it uses lights up and shows your keys.",
+    tryNote = "Hold or tap a modifier key now: the bar it uses lights up and shows your keys.",
     profile = "Profile",
     own = "%s (this character)",
     class = "%s (this class)",
     all = "%s (every character)",
     fight = "The window opens out of a fight.",
-    welcome = "Type /fmk to set up your hold keys.",
+    welcome = "Type /fmk to set up your modifier keys.",
     moreTip = "Switch one more bar with this key.",
     lessTip = "Take this line off.",
 }
@@ -52,6 +57,11 @@ local MOUSE = { MiddleButton = "BUTTON3" }
 for n = 4, 31 do MOUSE["Button" .. n] = "BUTTON" .. n end
 -- typed characters whose key has another name
 local NAMED = { [" "] = "SPACE" }
+-- keys that only go with another: never a key by themselves
+local ALONE = { LSHIFT = true, RSHIFT = true, LCTRL = true, RCTRL = true, LALT = true, RALT = true, LMETA = true,
+    RMETA = true }
+-- these empty a box
+local CLEAR = { BACKSPACE = true, DELETE = true }
 
 local window, catcher, capture
 local rows = {}
@@ -72,9 +82,22 @@ local function BarLabel(bar)
     return TEXT.hidden:format(bar.title)
 end
 
--- a key is being waited for: fn(key) takes it
-local function Capture(fn, note)
-    capture = { fn = fn, note = note }
+-- a key as the bars write it: short
+local function Short(key)
+    local text = GetBindingText(key, 1)
+    if type(text) ~= "string" or text == "" then return key end
+    return text
+end
+
+-- an action key with the modifiers held, in the game's own order
+local function Chord(key)
+    if CreateKeyChordStringUsingMetaKeyState then return CreateKeyChordStringUsingMetaKeyState(key) end
+    return key
+end
+
+-- a key is being waited for: fn(key) takes it; `where`: the section whose note says so
+local function Capture(fn, note, where)
+    capture = { fn = fn, note = note, where = where }
     catcher:Show()
     catcher:SetFocus()
     UI.Refresh()
@@ -90,7 +113,7 @@ end
 
 -- a key or mouse button came in while one was waited for
 function UI.Pressed(key)
-    if not capture then return end
+    if not capture or ALONE[key] then return end
     if key == "ESCAPE" then return UI.EndCapture() end
     local ok, why = capture.fn(key)
     if ok then return UI.EndCapture() end
@@ -197,12 +220,21 @@ local function Row(n, i, j)
         end
         if taken then return end
         local index = row.i
-        Capture(function(key) return Model.SetHoldKey(index, key) end, TEXT.waitHold)
+        Capture(function(key) return Model.SetHoldKey(index, key) end, TEXT.waitHold, "holds")
         capture.row = row
         UI.Refresh()
     end)
     row.key:RegisterForClicks("AnyUp")
     row.key:SetSize(KEY_W, LINE)
+    row.mode = Drop(MODE_W, function(_, root)
+        root:CreateRadio(TEXT.hold, function() return not Model.Tap(row.i) end,
+            function() Warn(select(2, Model.SetTap(row.i, false))) end, "hold")
+        root:CreateRadio(TEXT.tap, function() return Model.Tap(row.i) end,
+            function() Warn(select(2, Model.SetTap(row.i, true))) end, "tap")
+    end)
+    row.mode.tip = TEXT.modeTip
+    row.mode:HookScript("OnEnter", Tip)
+    row.mode:HookScript("OnLeave", NoTip)
     row.what = Drop(WHAT_W, function(_, root)
         local line = Line()
         if not line then return end
@@ -250,8 +282,19 @@ end
 
 local function Build()
     -- starts shown: hidden before its OnShow is set
-    window = CreateFrame("Frame", NAME, UIParent, "BasicFrameTemplateWithInset")
+    window = CreateFrame("Frame", NAME, UIParent)
     window:Hide()
+    -- the game's own dialog border over a dark backing, as its own windows wear it
+    local back = window:CreateTexture(nil, "BACKGROUND")
+    back:SetPoint("TOPLEFT", window, "TOPLEFT", 4, -4)
+    back:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -4, 4)
+    back:SetColorTexture(0.03, 0.03, 0.04, 0.92)
+    if NineSliceUtil and NineSliceUtil.ApplyLayoutByName then NineSliceUtil.ApplyLayoutByName(window, "Dialog") end
+    local title = window:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    title:SetPoint("TOP", window, "TOP", 0, -16)
+    title:SetText(TITLE)
+    local close = CreateFrame("Button", nil, window, "UIPanelCloseButton")
+    close:SetPoint("TOPRIGHT", window, "TOPRIGHT", -4, -4)
     window:SetWidth(WIDTH)
     window:SetPoint("LEFT", UIParent, "LEFT", 80, 80)
     window:SetFrameStrata("DIALOG")
@@ -262,7 +305,6 @@ local function Build()
     window:RegisterForDrag("LeftButton")
     window:SetScript("OnDragStart", window.StartMoving)
     window:SetScript("OnDragStop", window.StopMovingOrSizing)
-    if window.TitleText then window.TitleText:SetText(TITLE) end
     window:SetScript("OnHide", function() UI.EndCapture() end)
     catcher = Catcher()
 
@@ -270,22 +312,35 @@ local function Build()
     window.keysHead = Text("GameFontNormalLarge", TEXT.keysHead)
     window.keysNote = Text("GameFontHighlight", TEXT.keysNote)
     window.keysDrop = Drop(KEYS_W, FillKeys)
-    window.addKey = Push(TEXT.addKey, function()
-        if capture then return UI.EndCapture() end
-        Capture(function(key)
-            local ok, why = Model.AddKey(key)
-            -- stays open: the next key is the next place
-            if ok then return false end
-            return false, why
-        end, TEXT.waitKey)
-    end)
-    window.dropKey = Push(TEXT.dropKey, function()
-        local list = Profiles.Data().keys.list
-        if list then Warn(select(2, Model.RemoveKey(#list))) end
-    end)
-    window.keys = Text("GameFontNormal")
+    -- One box per button of a bar. A click waits for its key; a right-click
+    -- empties it. A bar's own keys become the player's at the first change.
+    window.boxes = {}
+    for i = 1, Model.SPOTS do
+        local box = Push("", function(_, mouse)
+            local taken = MOUSE[mouse]
+            if capture and capture.box == i then
+                if taken then UI.Pressed(taken) else UI.EndCapture() end
+                return
+            end
+            if taken then return end
+            if mouse == "RightButton" then return Warn(select(2, Model.SetKey(i, nil))) end
+            Capture(function(key)
+                if CLEAR[key] then return Model.SetKey(i, nil) end
+                return Model.SetKey(i, MOUSE[key] and key or Chord(key))
+            end, TEXT.waitSpot:format(i), "keys")
+            capture.box = i
+            UI.Refresh()
+        end)
+        box:RegisterForClicks("AnyUp")
+        box:SetSize(BOX_W, LINE)
+        box.number = window:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+        box.number:SetPoint("TOP", box, "BOTTOM", 0, -2)
+        box.number:SetText(tostring(i))
+        window.boxes[i] = box
+    end
     window.holdsHead = Text("GameFontNormalLarge", TEXT.holdsHead)
-    window.holdsNote = Text("GameFontHighlight", TEXT.holdsNote)
+    window.holdsWarn = Text("GameFontRed", TEXT.holdsWarn)
+    window.holdsWait = Text("GameFontHighlight", TEXT.waitHold)
     -- while it waits, a mouse button clicked on it is the key
     window.addHold = Push(TEXT.addHold, function(_, mouse)
         local taken = MOUSE[mouse]
@@ -294,7 +349,7 @@ local function Build()
             return
         end
         if taken then return end
-        Capture(function(key) return Model.AddHold(key) end, TEXT.waitHold)
+        Capture(function(key) return Model.AddHold(key) end, TEXT.waitHold, "holds")
         capture.add = true
         UI.Refresh()
     end)
@@ -315,27 +370,26 @@ function UI.Refresh()
     local y = Line(window.intro, TOP, GAP * 2)
 
     y = Line(window.keysHead, y)
+    window.keysNote:SetText(capture and capture.where == "keys" and capture.note or TEXT.keysNote)
     y = Line(window.keysNote, y)
     window.keysDrop:ClearAllPoints()
     Place(window.keysDrop, 0, y)
     window.keysDrop:GenerateMenu()
-    local own = data.keys.list ~= nil
-    window.addKey:SetShown(own)
-    window.dropKey:SetShown(own)
-    window.addKey:SetText(capture and not capture.row and not capture.add and TEXT.press or TEXT.addKey)
-    Fit(window.addKey)
-    window.addKey:ClearAllPoints()
-    window.addKey:SetPoint("LEFT", window.keysDrop, "RIGHT", GAP, 0)
-    window.dropKey:ClearAllPoints()
-    window.dropKey:SetPoint("LEFT", window.addKey, "RIGHT", GAP / 2, 0)
     y = y + LINE + GAP
-    local labels = Model.KeyLabels()
-    window.keys:SetText(#labels > 0 and table.concat(labels, "   ") or TEXT.noKeys)
-    y = Line(window.keys, y, GAP * 2)
+    local spots = Model.Spots()
+    for i, box in ipairs(window.boxes) do
+        box:ClearAllPoints()
+        Place(box, (i - 1) * (BOX_W + BOX_GAP), y)
+        box:SetText(capture and capture.box == i and TEXT.waiting or (spots[i] and Short(spots[i]) or ""))
+    end
+    y = y + LINE + NUMBER_H + GAP * 2
 
     y = Line(window.holdsHead, y)
-    window.holdsNote:SetText(capture and capture.note or TEXT.holdsNote)
-    y = Line(window.holdsNote, y)
+    -- the warning, or while a key is waited for, what to press
+    local waiting = capture ~= nil and capture.where == "holds"
+    window.holdsWarn:SetShown(not waiting)
+    window.holdsWait:SetShown(waiting)
+    y = Line(waiting and window.holdsWait or window.holdsWarn, y)
     local used = 0
     for i, hold in ipairs(data.holds) do
         for j in ipairs(hold.lines) do
@@ -346,24 +400,27 @@ function UI.Refresh()
             row.key:SetText(capture and capture.row == row and TEXT.press or Model.Label(hold.key))
             row.key:ClearAllPoints()
             Place(row.key, 0, y)
+            row.mode:SetShown(first)
+            row.mode:ClearAllPoints()
+            Place(row.mode, KEY_W + ROW_GAP, y)
+            row.mode:GenerateMenu()
             row.what:ClearAllPoints()
-            Place(row.what, KEY_W + GAP, y)
+            Place(row.what, KEY_W + MODE_W + ROW_GAP * 2, y)
             row.what:Show()
             row.what:GenerateMenu()
             row.to:ClearAllPoints()
-            row.to:SetPoint("LEFT", row.what, "RIGHT", GAP, 0)
+            row.to:SetPoint("LEFT", row.what, "RIGHT", ROW_GAP, 0)
             row.to:Show()
             row.to:GenerateMenu()
             row.less:ClearAllPoints()
-            row.less:SetPoint("LEFT", row.to, "RIGHT", GAP, 0)
+            row.less:SetPoint("LEFT", row.to, "RIGHT", ROW_GAP, 0)
             row.less:Show()
             row.more:ClearAllPoints()
             row.more:SetPoint("LEFT", row.less, "RIGHT", 2, 0)
             row.more:SetShown(j == #hold.lines)
             y = y + LINE + GAP / 2
             if j == #hold.lines then
-                local does = Model.Does(hold.key)
-                row.note:SetText(Model.Sentence(i) .. (does and (" " .. TEXT.noMore:format(does)) or ""))
+                row.note:SetText(Model.Sentence(i))
                 y = Line(row.note, y, GAP * 1.5)
             else
                 row.note:Hide()
@@ -372,7 +429,8 @@ function UI.Refresh()
     end
     for n = used + 1, #rows do
         local row = rows[n]
-        row.key:Hide(); row.what:Hide(); row.to:Hide(); row.less:Hide(); row.more:Hide(); row.note:Hide()
+        row.key:Hide(); row.mode:Hide(); row.what:Hide(); row.to:Hide(); row.less:Hide(); row.more:Hide()
+        row.note:Hide()
     end
     window.addHold:SetText(capture and capture.add and TEXT.press or TEXT.addHold)
     Fit(window.addHold)

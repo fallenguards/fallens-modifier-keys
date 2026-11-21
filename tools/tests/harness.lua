@@ -122,9 +122,26 @@ function Frame:HookScript(k, fn)
 end
 function Frame:CreateTexture() return region() end
 function Frame:CreateFontString() return region() end
-function Frame:WrapScript(frame, _, body)
+function Frame:WrapScript(frame, _, body, after)
     assert(frame.protected, "a wrap runs only on a protected frame")
-    frame.wrap, frame.header = body, self
+    frame.wrap, frame.post, frame.header = body, after, self
+end
+-- the game's secure clock: a frame hides by itself after a time, and its "_onhide" snippet runs
+function Frame:RegisterAutoHide(ttl)
+    assert(W.secure, "RegisterAutoHide is a snippet's call")
+    local frame = self
+    frame.hideAt = W.clock + ttl
+    W.queue[#W.queue + 1] = function()
+        if not frame.shown or W.clock < frame.hideAt then return end
+        frame.shown = false
+        local body = frame.attrs._onhide
+        if body then
+            W.secure = true
+            local ok, err = pcall(assert(load("local self = ...; " .. body, "onhide", "t", W.env)), frame)
+            W.secure = false
+            assert(ok, err)
+        end
+    end
 end
 
 -- override bindings: priority ones win, then the latest set
@@ -343,18 +360,42 @@ local function boot(alone)
 end
 
 -- a press or release reaching a frame: its wrap first, then what it does
-local function click(frame, down, how)
+local click
+-- a secure button's own action, on the press (the game's "cast on key down" is on)
+local function act(frame)
+    if frame.attrs.type == "action" then
+        W.casts[#W.casts + 1] = frame.action
+    elseif frame.attrs.type == "macro" then
+        -- a macro's /click lines click as secure code: a wrapped button takes them
+        for line in (frame.attrs.macrotext or ""):gmatch("[^\n]+") do
+            local name, how, state = line:match("^/click (%S+) (%S+) (%d)$")
+            assert(name and W.frames[name], "a macro line the fake client cannot run: " .. line)
+            click(W.frames[name], state == "1", how)
+        end
+    end
+end
+function click(frame, down, how)
     how = how or "LeftButton"
     if frame.forwards then frame = frame.forwards end
+    local message
     if frame.wrap then
         W.secure = true
         local fn = assert(load("local self, button, down, owner = ...; " .. frame.wrap, frame.name, "t", W.env))
-        local ok, verdict = pcall(fn, frame, how, down, frame.header)
+        local ok, verdict, said = pcall(fn, frame, how, down, frame.header)
         W.secure = false
         assert(ok, verdict)
         if verdict == false then return end
+        message = said
     end
-    if down and frame.attrs.type == "action" then W.casts[#W.casts + 1] = frame.action end
+    if down then act(frame) end
+    -- the wrap's second snippet runs after the click's own action, when the first handed it a message
+    if message ~= nil and frame.post then
+        W.secure = true
+        local fn = assert(load("local self, message, button, down, owner = ...; " .. frame.post, frame.name, "t", W.env))
+        local ok, err = pcall(fn, frame, message, how, down, frame.header)
+        W.secure = false
+        assert(ok, err)
+    end
 end
 -- the client refuses a wrapped click made by addon code
 function Frame:Click(_, down)

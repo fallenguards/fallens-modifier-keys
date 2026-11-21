@@ -30,6 +30,11 @@ local PAD_FRAMES = "^Gamepad"
 local GAME_SPECIAL = { "^OverrideActionBar", "^MultiCast", "^PossessActionBar" }
 
 local universe, keyMap, keyMapAt, bars, barsAt
+local masked = {}
+
+-- Keys bound over by this addon itself (its hold keys): what such a key
+-- does is read under that binding, so it still counts as its button's key.
+function B.Mask(keys) masked = keys or {} end
 
 local function Universe()
     if universe then return universe end
@@ -55,7 +60,7 @@ function B.KeyMap(fresh)
     if not fresh and keyMap and now - keyMapAt < 1 then return keyMap end
     keyMap, keyMapAt = {}, now
     for _, key in ipairs(Universe()) do
-        local action = GetBindingAction(key, true)
+        local action = masked[key] and GetBindingAction(key) or GetBindingAction(key, true)
         if action and action ~= "" then
             local keys = keyMap[action]
             if not keys then

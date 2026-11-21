@@ -192,6 +192,24 @@ release("1")
 fly.bind()
 check(does("2") == "CLICK FallensFlyoutsOpener6:tap" and _G.ActionButton2.action == 2, "let go: 2 opens its flyout again")
 
+print("== a tapped key and a flyout")
+check(M.SetLine(1, 1, "keys", "MultiBarBottomLeftButton") == true and M.SetTap(1, true) == true, "1 is set to a tap, its keys sent to the second bar")
+tap("1")
+local passed = does("4"):match("^CLICK (FallensModifierKeysKey%d+):LeftButton$")
+check(passed ~= nil, "tapped: 4 goes through a button of this addon's")
+-- a flyout made while the layer is on: taken in once the layer is over
+fly.host("MultiBarBottomLeftButton4", 2)
+fly.laid()
+tap("ESCAPE")
+flush(1)
+tap("1")
+passed = does("4"):match("^CLICK (FallensModifierKeysKey%d+):LeftButton$")
+check(passed and _G[passed]:GetAttribute("macrotext") == "/click FallensFlyoutsOpener2 tap 1\n/click FallensFlyoutsOpener2 tap 0",
+    "tapped, with a flyout on that button: the press is passed to its opener as a tap, down and up")
+tap("ESCAPE")
+check(NS.Layers.Held() == nil and M.SetTap(1, false) == true and M.SetLine(1, 1, "ActionButton", "MultiBarBottomLeftButton") == true,
+    "Escape ends it; 1 is held again")
+
 print("== the hold key is given up")
 changed = fly.changed
 check(M.RemoveHold(1) == true and fly.changed == changed + 1, "1 is no hold key: the other addon is told")

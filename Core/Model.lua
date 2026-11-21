@@ -7,12 +7,11 @@ ns.Model = M
 local Bars, Profiles, Layers = ns.Bars, ns.Profiles, ns.Layers
 
 local TEXT = {
-    fight = "Hold keys change only out of a fight.",
-    noKey = "That key cannot be a hold key.",
-    combo = "A hold key is one key on its own, without Shift, Ctrl or Alt.",
-    taken = "%s is a hold key already.",
-    isAction = "%s is one of your action keys.",
-    isHold = "%s is a hold key.",
+    fight = "Modifier keys change only out of a fight.",
+    noKey = "That key cannot be used here.",
+    combo = "A modifier key is one key on its own, without Shift, Ctrl or Alt.",
+    taken = "%s is a modifier key already.",
+    isHold = "%s is a modifier key you hold.",
     keysPress = "%s press %s",
     shows = "%s shows %s",
     nothing = "Does nothing yet.",
@@ -90,9 +89,6 @@ function M.AddHold(pressed)
     local key, why = M.Key(pressed)
     if not key then return nil, why end
     if HoldAt(key) then return nil, TEXT.taken:format(M.Label(key)) end
-    for _, own in ipairs(Data().keys.list or {}) do
-        if own == key then return nil, TEXT.isAction:format(M.Label(key)) end
-    end
     local holds = Data().holds
     holds[#holds + 1] = { key = key, lines = { { what = "keys", to = Next() } }, binds = {} }
     Done()
@@ -152,39 +148,65 @@ function M.UseBar(id)
     return Done()
 end
 
--- or are the player's own, in order; starts from what the bar gave
+-- how many spots a set of action keys has: one per button of a bar
+M.SPOTS = 12
+
+-- the first key of each spot, false for a spot with none
+function M.Spots()
+    local out, places = {}, Layers.ActionKeys(Data())
+    for i = 1, M.SPOTS do out[i] = places[i] and places[i][1] or false end
+    return out
+end
+
+-- or are the player's own, one per spot; starts from what the bar gave
 function M.UseList()
     if Profiles.Busy() then return nil, TEXT.fight end
     local keys = Data().keys
     if keys.list then return true end
-    local list = {}
-    for _, place in ipairs(Layers.ActionKeys(Data())) do
-        if place[1] then list[#list + 1] = place[1] end
-    end
-    keys.list = list
+    keys.list = M.Spots()
     return Done()
 end
 
-function M.AddKey(pressed)
+-- The key of spot i; nil empties it. A key given to a second spot leaves
+-- its first. A bar's keys become the player's own at the first change.
+function M.SetKey(i, pressed)
     if Profiles.Busy() then return nil, TEXT.fight end
-    local list = Data().keys.list
-    if not list or type(pressed) ~= "string" or pressed == "" then return nil end
-    local key = pressed:upper()
-    if NEVER[key] then return nil, TEXT.noKey end
-    if HoldAt(key) then return nil, TEXT.isHold:format(M.Label(key)) end
-    for _, own in ipairs(list) do
-        if own == key then return nil end
+    if type(i) ~= "number" or i < 1 or i > M.SPOTS then return nil end
+    local key = false
+    if pressed ~= nil then
+        if type(pressed) ~= "string" or pressed == "" then return nil end
+        key = pressed:upper()
+        if NEVER[key] then return nil, TEXT.noKey end
+        -- a modifier key can be an action key only where a tapped one's layer is on
+        if HoldAt(key) and not M.AnyTap() then return nil, TEXT.isHold:format(M.Label(key)) end
     end
-    list[#list + 1] = key
+    local keys = Data().keys
+    if not keys.list then keys.list = M.Spots() end
+    for n = 1, M.SPOTS do
+        if keys.list[n] == nil or (key and keys.list[n] == key) then keys.list[n] = false end
+    end
+    keys.list[i] = key
     return Done()
 end
 
-function M.RemoveKey(n)
+-- How hold i works. Tapped: its layer stays on for the next key. Held (as
+-- it starts): its layer is on while the key is down.
+function M.SetTap(i, on)
     if Profiles.Busy() then return nil, TEXT.fight end
-    local list = Data().keys.list
-    if not (list and list[n]) then return nil end
-    table.remove(list, n)
+    local hold = Data().holds[i]
+    if not hold then return nil end
+    hold.tap = on and true or nil
     return Done()
+end
+function M.Tap(i)
+    local hold = Data().holds[i]
+    return hold ~= nil and hold.tap == true
+end
+function M.AnyTap()
+    for _, hold in ipairs(Data().holds) do
+        if hold.tap then return true end
+    end
+    return false
 end
 
 -- one key for one button while hold i is down; a key set twice moves
@@ -224,15 +246,21 @@ function M.Seed()
         end
     end
     local keys = data.keys
+    -- a list has a place for every spot
+    if type(keys.list) == "table" then
+        for n = 1, M.SPOTS do
+            if type(keys.list[n]) ~= "string" or keys.list[n] == "" then keys.list[n] = false end
+        end
+    end
     if keys.bar or keys.list then return end
     local bar = Bars.Busiest()
     if bar then keys.bar = bar.id end
 end
 
 -- the action keys in order, as shown: one label per place that has a key
-function M.KeyLabels()
+function M.KeyLabels(hold)
     local out = {}
-    for _, place in ipairs(Layers.ActionKeys(Data())) do
+    for _, place in ipairs(Layers.ActionKeys(Data(), hold)) do
         if place[1] then out[#out + 1] = M.Label(place[1]) end
     end
     return out
@@ -246,7 +274,7 @@ function M.Sentence(i)
     for _, line in ipairs(hold.lines) do
         local to = Bars.Title(line.to) or TEXT.gone
         if line.what == "keys" then
-            local labels = M.KeyLabels()
+            local labels = M.KeyLabels(hold)
             local keys = #labels > 0 and table.concat(labels, " ") or TEXT.noKeys
             parts[#parts + 1] = TEXT.keysPress:format(keys, to)
         else

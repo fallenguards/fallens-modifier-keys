@@ -11,8 +11,8 @@ local L = {}
 ns.Layers = L
 local Bars, Profiles = ns.Bars, ns.Profiles
 
-local ROOT, HOLD = "FallensModifierKeysRoot", "FallensModifierKeysHold"
-L.ROOT, L.HOLD = ROOT, HOLD
+local ROOT, HOLD, KEY = "FallensModifierKeysRoot", "FallensModifierKeysHold", "FallensModifierKeysKey"
+L.ROOT, L.HOLD, L.KEY = ROOT, HOLD, KEY
 -- Fallen's Flyouts binds from a root of its own. The two agreed: a hold key
 -- is never a key of a flyout, a layer key sent to a button with a flyout is
 -- bound to what that addon names (the flyout opens), and the keys of an
@@ -82,11 +82,28 @@ local BIND = [[
                 end
             end
         end
+        -- a tapped layer stays on: Escape lets go of it
+        if now and owner:GetAttribute("tap" .. now) and not kept.ESCAPE then
+            owner:SetBindingClick(true, "ESCAPE", owner:GetAttribute("hname" .. now), "cancel")
+        end
     end
 ]]
--- The hold key last pressed and still down is the held one. A release with
--- no press before it (its press went to a key of another hold) is nothing.
+-- Each hold key works one of two ways. Held: the one last pressed and
+-- still down is the held one; a release with no press before it (its
+-- press went to a key of another hold) is nothing, and letting one go
+-- leaves a tapped layer on. Tapped: a press turns its layer on and it
+-- stays ("latched"); a press of the same key with it on, or Escape, turns
+-- it off.
 local HOLD_WRAP = [[
+    if self:GetAttribute("tap") then
+        if not down then return false end
+        local now = self:GetAttribute("index")
+        if button == "cancel" or owner:GetAttribute("layer") == now then now = nil end
+]] .. UNSWAP .. SWAP .. BIND .. [[
+        owner:SetAttribute("latched", now and true or nil)
+        owner:SetAttribute("layer", now)
+        return false
+    end
     if down then
         seq = (seq or 0) + 1
         self:SetAttribute("stamp", seq)
@@ -99,9 +116,10 @@ local HOLD_WRAP = [[
         local stamp = owner:GetFrameRef("hold" .. i):GetAttribute("stamp")
         if stamp and (not best or stamp > best) then top, best = i, stamp end
     end
-    if top ~= owner:GetAttribute("layer") then
+    if top ~= owner:GetAttribute("layer") and (top or not owner:GetAttribute("latched")) then
         local now = top
 ]] .. UNSWAP .. SWAP .. BIND .. [[
+        owner:SetAttribute("latched", nil)
         owner:SetAttribute("layer", now)
     end
     return false
@@ -112,6 +130,28 @@ local RESET = "local owner = self\n" .. UNSWAP .. [[
         owner:GetFrameRef("hold" .. i):SetAttribute("stamp", nil)
     end
     seq = 0
+    owner:SetAttribute("latched", nil)
+    owner:SetAttribute("layer", nil)
+]]
+
+-- A tapped layer's keys go through buttons of ours that pass the press on
+-- (a macro clicking the target down and up), so the secure side sees the
+-- key and can end the layer with it. Ended after the release, once the
+-- button has acted; a release with no press of its own before it (the
+-- tap that turned the layer on) is nothing.
+local KEY_PRE = [[
+    if down then
+        self:SetAttribute("mid", true)
+        return
+    end
+    if not self:GetAttribute("mid") then return false end
+    self:SetAttribute("mid", nil)
+    return nil, "spent"
+]]
+local KEY_POST = [[
+    local now = nil
+]] .. UNSWAP .. SWAP .. BIND .. [[
+    owner:SetAttribute("latched", nil)
     owner:SetAttribute("layer", nil)
 ]]
 
@@ -119,7 +159,7 @@ local RESET = "local owner = self\n" .. UNSWAP .. [[
 L.WRAP = HOLD_WRAP
 
 local root, plan, signature
-local buttons, published = {}, {}
+local buttons, proxies, published = {}, {}, {}
 local holdSet, told = "", false
 local listeners = {}
 local pending, watch, upFor, trusted, quiet = false, nil, 0, false, 0
@@ -135,12 +175,15 @@ local function Tell()
     for _, fn in ipairs(listeners) do fn(held, plan) end
 end
 
--- the frame and click the other addon names for a key meant for this button; nil: no flyout on it
-local function Flyout(button, key)
+-- The frame and click the other addon names for a key meant for this
+-- button; nil: no flyout on it. `tapped`: the press is passed on with its
+-- release in the same instant, so it is sent as that addon's "tap" (a key
+-- that cannot be held), whatever the key.
+local function Flyout(button, key, tapped)
     if not FallensFlyouts_KeyTarget then return nil end
     local frame, click = FallensFlyouts_KeyTarget(button:GetName(), key)
     if type(frame) ~= "string" then return nil end
-    return "CLICK " .. frame .. ":" .. (click or "LeftButton")
+    return "CLICK " .. frame .. ":" .. (tapped and "tap" or click or "LeftButton")
 end
 
 -- the keys of each place, in order: a bar's own, or the player's list
@@ -162,11 +205,26 @@ local function ActionKeys(keys, holdKeys)
     return out
 end
 
--- the same for a profile: a hold key is never an action key
-function L.ActionKeys(profile)
-    local holdKeys = {}
-    for _, hold in ipairs(profile.holds) do holdKeys[hold.key or ""] = true end
+-- The same for one hold key of a profile. Under a held one no hold key is
+-- an action key: one is down and the others switch. Under a tapped one
+-- every key is, hold keys too: its layer is on with no key down. With no
+-- hold named: as shown in the window, where a hold key is left out only
+-- when none is tapped.
+function L.ActionKeys(profile, hold)
+    local holdKeys, anyTap = {}, false
+    for _, other in ipairs(profile.holds) do
+        holdKeys[other.key or ""] = true
+        anyTap = anyTap or other.tap == true
+    end
+    if (hold and hold.tap) or (not hold and anyTap) then holdKeys = {} end
     return ActionKeys(profile.keys, holdKeys)
+end
+
+-- the macro that passes a key's press on to what `action` presses
+local function Macro(action, button)
+    local frame, how = action:match("^CLICK (.-):(.*)$")
+    if not frame then frame, how = button, "LeftButton" end
+    return ("/click %s %s 1\n/click %s %s 0"):format(frame, how, frame, how)
 end
 
 -- What each hold key does, from the profile and the bars as they are now.
@@ -178,17 +236,20 @@ function L.Build(profile)
     for _, hold in ipairs(profile.holds) do
         if type(hold.key) == "string" then holdKeys[hold.key] = true end
     end
-    local keys = ActionKeys(profile.keys, holdKeys)
     for _, hold in ipairs(profile.holds) do
         if type(hold.key) == "string" and hold.key ~= "" and not seen[hold.key] then
             seen[hold.key] = true
-            local built = { key = hold.key, binds = {}, swaps = {}, lit = {}, source = hold }
+            local built = { key = hold.key, binds = {}, swaps = {}, lit = {}, source = hold, tap = hold.tap == true }
+            local keys = L.ActionKeys(profile, hold)
             local at = {}
             -- `plain`: the button itself is pressed, whatever flyout it has
             local function Bind(key, button, plain)
-                if key == hold.key then return end
-                local action = plain and Bars.Press(button, true) or Flyout(button, key) or Bars.Press(button)
+                if key == hold.key and not built.tap then return end
+                local action = plain and Bars.Press(button, true) or Flyout(button, key, built.tap)
+                    or Bars.Press(button)
                 local entry = { key = key, action = action, button = button:GetName() }
+                -- tapped, a key sent to another button goes through a button of ours
+                if built.tap and not plain then entry.macro = Macro(action, entry.button) end
                 if at[key] then built.binds[at[key]] = entry else
                     built.binds[#built.binds + 1] = entry
                     at[key] = #built.binds
@@ -258,8 +319,10 @@ end
 local function Signature(built)
     local parts = {}
     for _, hold in ipairs(built.holds) do
-        parts[#parts + 1] = "H" .. hold.key
-        for _, bind in ipairs(hold.binds) do parts[#parts + 1] = bind.key .. ">" .. bind.action end
+        parts[#parts + 1] = (hold.tap and "T" or "H") .. hold.key
+        for _, bind in ipairs(hold.binds) do
+            parts[#parts + 1] = bind.key .. ">" .. bind.action .. (bind.macro and "~" or "")
+        end
         for _, swap in ipairs(hold.swaps) do
             parts[#parts + 1] = swap.button .. ":" .. swap.attr .. "=" .. swap.value .. "/" .. tostring(swap.old)
         end
@@ -284,7 +347,19 @@ local function Button(i)
     button:RegisterForClicks("AnyDown", "AnyUp")
     Root():WrapScript(button, "OnClick", HOLD_WRAP)
     root:SetFrameRef("hold" .. i, button)
+    button:SetAttribute("index", i)
     buttons[i] = button
+    return button
+end
+
+local function Proxy(n)
+    if proxies[n] then return proxies[n] end
+    -- starts shown: as the hold buttons
+    local button = CreateFrame("Button", KEY .. n, UIParent, "SecureActionButtonTemplate")
+    button:RegisterForClicks("AnyDown", "AnyUp")
+    button:SetAttribute("type", "macro")
+    Root():WrapScript(button, "OnClick", KEY_PRE, KEY_POST)
+    proxies[n] = button
     return button
 end
 
@@ -293,16 +368,26 @@ local function Push(built)
     Root():Execute(RESET)
     ClearOverrideBindings(root)
     if _G[FLYOUTS_ROOT] then root:SetFrameRef("flyouts", _G[FLYOUTS_ROOT]) end
-    local now = {}
+    local now, passed = {}, 0
     root:SetAttribute("holds", #built.holds)
     for i, hold in ipairs(built.holds) do
-        Button(i)
+        Button(i):SetAttribute("tap", hold.tap or nil)
+        root:SetAttribute("tap" .. i, hold.tap or nil)
         root:SetAttribute("hkey" .. i, hold.key)
         root:SetAttribute("hname" .. i, HOLD .. i)
         root:SetAttribute("binds" .. i, #hold.binds)
         for j, bind in ipairs(hold.binds) do
+            -- what the key is bound to: the target itself, or the button of ours that passes it on
+            bind.bound = bind.action
+            if bind.macro then
+                passed = passed + 1
+                local proxy = Proxy(passed)
+                proxy:SetAttribute("macrotext", bind.macro)
+                proxy:SetAttribute("mid", nil)
+                bind.bound = "CLICK " .. KEY .. passed .. ":LeftButton"
+            end
             root:SetAttribute("bkey" .. i .. "_" .. j, bind.key)
-            root:SetAttribute("bdo" .. i .. "_" .. j, bind.action)
+            root:SetAttribute("bdo" .. i .. "_" .. j, bind.bound)
             -- which keys each layer takes, and any layer, for a lookup by name
             now["lkey" .. i .. "_" .. bind.key] = true
             now["lany_" .. bind.key] = true
@@ -347,6 +432,9 @@ function L.Apply(force, deep)
         root:Execute(RESET)
         root:Execute("local owner, now = self, nil\n" .. BIND)
     end
+    local holdKeys = {}
+    for _, hold in ipairs(Profiles.Data().holds) do holdKeys[hold.key or ""] = true end
+    Bars.Mask(holdKeys)
     Bars.Forget(deep)
     local built = L.Build(Profiles.Data())
     local sig = Signature(built)
@@ -394,7 +482,14 @@ function L.Changed()
     local held = L.Held()
     ns.Log(("layers: held %s at %.2f"):format(tostring(held), GetTime()))
     upFor, trusted, quiet = 0, false, GetTime() + 1
-    if held and not watch then
+    -- a change that waited for a tapped layer to end
+    if not held and pending and not watch then
+        C_Timer.After(0.05, function()
+            if pending then L.Apply() end
+        end)
+    end
+    -- a tapped layer is on with its key up: nothing is stuck
+    if held and not watch and not (plan and plan.holds[held] and plan.holds[held].tap) then
         watch = C_Timer.NewTicker(STUCK_EVERY, function()
             if not L.Held() then
                 watch:Cancel()
