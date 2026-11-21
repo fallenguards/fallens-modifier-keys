@@ -7,6 +7,7 @@
 ## Category: Action Bars
 ## AddonCompartmentFunc: FallensModifierKeys_OnAddonCompartmentClick
 ## SavedVariables: FallensModifierKeysDB
+## OptionalDeps: FallensFlyouts
 ## DefaultState: enabled
 
 Core\Profiles.lua

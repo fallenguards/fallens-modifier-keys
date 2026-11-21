@@ -210,12 +210,12 @@ end
 -- What a key is bound to so it presses this button. The game's own button
 -- takes its own command. Any other: the click its own key sends, else the
 -- click a key sends a button of the same make (the same name but for its
--- number), else a plain click.
-function B.Press(button)
+-- number), else a plain click. `plain`: never what its own key does now.
+function B.Press(button, plain)
     local name = button:GetName()
     local bar, index = Client(name)
     if bar then return bar[2] .. index end
-    local mine = OwnClick(button)
+    local mine = not plain and OwnClick(button)
     if mine then return mine end
     local stem = name:match("^(.-)%d+$")
     for _, other in ipairs(stem and B.List() or {}) do

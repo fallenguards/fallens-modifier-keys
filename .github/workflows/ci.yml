@@ -54,7 +54,7 @@ jobs:
         run: |
           status=0
           for model in captured relookup; do
-            for test in layers window; do
+            for test in layers window mate; do
               echo "== $test ($model)"
               lua tools/tests/run.lua "tools/tests/${test}_test.lua" "$model" || status=1
             done

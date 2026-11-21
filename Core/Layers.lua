@@ -1,6 +1,8 @@
 local _, ns = ...
 -- luacheck: read globals UIParent CreateFrame InCombatLockdown C_Timer ClearOverrideBindings GetTime
 -- luacheck: read globals IsKeyDown IsMouseButtonDown GetBindingAction
+-- luacheck: read globals FallensFlyouts_KeyTarget FallensFlyouts_Watch FallensFlyouts_Layers
+-- luacheck: read globals FallensFlyouts_LayersChanged
 
 -- Hold keys. Each is bound to a secure button of ours; its press and release
 -- run a snippet that binds the held one's keys and switches its bars, and
@@ -11,6 +13,15 @@ local Bars, Profiles = ns.Bars, ns.Profiles
 
 local ROOT, HOLD = "FallensModifierKeysRoot", "FallensModifierKeysHold"
 L.ROOT, L.HOLD = ROOT, HOLD
+-- Fallen's Flyouts binds from a root of its own. The two agreed: a hold key
+-- is never a key of a flyout, a layer key sent to a button with a flyout is
+-- bound to what that addon names (the flyout opens), and the keys of an
+-- open flyout are left alone. It reads "layer" and "lkey<n>_<KEY>" here,
+-- and leaves an opener key of its own unbound while the held layer has it.
+-- Its binding runs only when a flyout opens or shuts, so once that layer is
+-- off the key is bound here to its opener, as it binds it ("lany_<KEY>":
+-- the keys any layer takes).
+local FLYOUTS_ROOT = "FallensFlyoutsRoot"
 -- a release the game never sent (the window lost focus) is looked for this often
 local STUCK_EVERY, STUCK_AFTER = 0.25, 2
 
@@ -36,16 +47,40 @@ local SWAP = [[
         end
     end
 ]]
--- every hold key on its button, then the held one's keys on top
+-- Every hold key on its button, then the held one's keys on top; a key
+-- that picks from or shuts an open flyout stays that flyout's.
 local BIND = [[
     owner:ClearBindings()
     for i = 1, owner:GetAttribute("holds") or 0 do
         owner:SetBindingClick(true, owner:GetAttribute("hkey" .. i), owner:GetAttribute("hname" .. i))
     end
     do
+        local theirs = owner:GetFrameRef("flyouts")
+        local open = theirs and theirs:GetAttribute("open")
+        local kept, taken = newtable(), newtable()
+        if open then
+            for i = 1, theirs:GetAttribute("pkeys" .. open) or 0 do
+                kept[theirs:GetAttribute("pkey" .. open .. "_" .. i) or ""] = true
+            end
+            for i = 1, theirs:GetAttribute("ckeys") or 0 do
+                kept[theirs:GetAttribute("ckey" .. i) or ""] = true
+            end
+        end
         for j = 1, now and owner:GetAttribute("binds" .. now) or 0 do
             local at = now .. "_" .. j
-            owner:SetBinding(true, owner:GetAttribute("bkey" .. at), owner:GetAttribute("bdo" .. at))
+            local key = owner:GetAttribute("bkey" .. at)
+            taken[key] = true
+            if not kept[key] then owner:SetBinding(true, key, owner:GetAttribute("bdo" .. at)) end
+        end
+        for f = 1, theirs and theirs:GetAttribute("units") or 0 do
+            local name = theirs:GetAttribute("opener" .. f)
+            for i = 1, theirs:GetAttribute("okeys" .. f) or 0 do
+                local at = f .. "_" .. i
+                local key = theirs:GetAttribute("okey" .. at)
+                if key and name and owner:GetAttribute("lany_" .. key) and not taken[key] and not kept[key] then
+                    owner:SetBindingClick(true, key, name, theirs:GetAttribute("obtn" .. at))
+                end
+            end
         end
     end
 ]]
@@ -84,7 +119,8 @@ local RESET = "local owner = self\n" .. UNSWAP .. [[
 L.WRAP = HOLD_WRAP
 
 local root, plan, signature
-local buttons = {}
+local buttons, published = {}, {}
+local holdSet, told = "", false
 local listeners = {}
 local pending, watch, upFor, trusted, quiet = false, nil, 0, false, 0
 
@@ -97,6 +133,14 @@ function L.Held() return root and root:GetAttribute("layer") or nil end
 local function Tell()
     local held = L.Held()
     for _, fn in ipairs(listeners) do fn(held, plan) end
+end
+
+-- the frame and click the other addon names for a key meant for this button; nil: no flyout on it
+local function Flyout(button, key)
+    if not FallensFlyouts_KeyTarget then return nil end
+    local frame, click = FallensFlyouts_KeyTarget(button:GetName(), key)
+    if type(frame) ~= "string" then return nil end
+    return "CLICK " .. frame .. ":" .. (click or "LeftButton")
 end
 
 -- the keys of each place, in order: a bar's own, or the player's list
@@ -140,9 +184,11 @@ function L.Build(profile)
             seen[hold.key] = true
             local built = { key = hold.key, binds = {}, swaps = {}, lit = {}, source = hold }
             local at = {}
-            local function Bind(key, button)
+            -- `plain`: the button itself is pressed, whatever flyout it has
+            local function Bind(key, button, plain)
                 if key == hold.key then return end
-                local entry = { key = key, action = Bars.Press(button), button = button:GetName() }
+                local action = plain and Bars.Press(button, true) or Flyout(button, key) or Bars.Press(button)
+                local entry = { key = key, action = action, button = button:GetName() }
                 if at[key] then built.binds[at[key]] = entry else
                     built.binds[#built.binds + 1] = entry
                     at[key] = #built.binds
@@ -166,6 +212,10 @@ function L.Build(profile)
                             built.swaps[#built.swaps + 1] = { button = button:GetName(), attr = attr, value = value,
                                 old = old }
                             built.lit[#built.lit + 1] = { button = button:GetName() }
+                            -- its own keys open its own flyout: while it shows another action they press it
+                            for _, key in ipairs(Bars.Keys(button)) do
+                                if not holdKeys[key] and Flyout(button, key) then Bind(key, button, true) end
+                            end
                         end
                     end
                 end
@@ -183,6 +233,28 @@ function L.Build(profile)
     return out
 end
 
+-- The flyout openers on keys a layer of ours takes, as that addon's root
+-- lists them now: a change there is a change to what is bound here.
+local function Openers(built)
+    local theirs = _G[FLYOUTS_ROOT]
+    if type(theirs) ~= "table" or not theirs.GetAttribute then return "" end
+    local ours, parts = {}, {}
+    for _, hold in ipairs(built.holds) do
+        for _, bind in ipairs(hold.binds) do ours[bind.key] = true end
+    end
+    for f = 1, theirs:GetAttribute("units") or 0 do
+        for i = 1, theirs:GetAttribute("okeys" .. f) or 0 do
+            local at = f .. "_" .. i
+            local key = theirs:GetAttribute("okey" .. at)
+            if key and ours[key] then
+                parts[#parts + 1] = key .. ">" .. tostring(theirs:GetAttribute("opener" .. f)) .. ":"
+                    .. tostring(theirs:GetAttribute("obtn" .. at))
+            end
+        end
+    end
+    return table.concat(parts, "|")
+end
+
 local function Signature(built)
     local parts = {}
     for _, hold in ipairs(built.holds) do
@@ -193,7 +265,7 @@ local function Signature(built)
         end
         for _, lit in ipairs(hold.lit) do parts[#parts + 1] = lit.button .. "*" .. tostring(lit.key) end
     end
-    return table.concat(parts, "|")
+    return table.concat(parts, "|") .. "#" .. Openers(built)
 end
 
 local function Root()
@@ -220,6 +292,8 @@ end
 local function Push(built)
     Root():Execute(RESET)
     ClearOverrideBindings(root)
+    if _G[FLYOUTS_ROOT] then root:SetFrameRef("flyouts", _G[FLYOUTS_ROOT]) end
+    local now = {}
     root:SetAttribute("holds", #built.holds)
     for i, hold in ipairs(built.holds) do
         Button(i)
@@ -229,6 +303,9 @@ local function Push(built)
         for j, bind in ipairs(hold.binds) do
             root:SetAttribute("bkey" .. i .. "_" .. j, bind.key)
             root:SetAttribute("bdo" .. i .. "_" .. j, bind.action)
+            -- which keys each layer takes, and any layer, for a lookup by name
+            now["lkey" .. i .. "_" .. bind.key] = true
+            now["lany_" .. bind.key] = true
         end
         root:SetAttribute("swaps" .. i, #hold.swaps)
         for j, swap in ipairs(hold.swaps) do
@@ -239,8 +316,20 @@ local function Push(built)
             root:SetAttribute("sold" .. at, swap.old)
         end
     end
+    for name in pairs(published) do
+        if not now[name] then root:SetAttribute(name, nil) end
+    end
+    for name in pairs(now) do root:SetAttribute(name, true) end
+    published = now
     root:Execute("local owner, now = self, nil\n" .. BIND)
     quiet = GetTime() + 1
+end
+
+-- the hold keys in use, as a list
+function L.HoldKeys()
+    local out = {}
+    for _, hold in ipairs(plan and plan.holds or {}) do out[#out + 1] = hold.key end
+    return out
 end
 
 -- Builds from the profile in use and binds. In a fight, or with a hold key
@@ -261,11 +350,22 @@ function L.Apply(force, deep)
     Bars.Forget(deep)
     local built = L.Build(Profiles.Data())
     local sig = Signature(built)
-    if sig == signature and not force then return false end
+    -- the flyouts' root is made at their first lay, which may come after ours
+    local theirs = _G[FLYOUTS_ROOT]
+    local unmet = theirs ~= nil and (root == nil or root:GetAttribute("frameref-flyouts") == nil)
+    if sig == signature and not force and not unmet then return false end
     plan, signature = built, sig
     Push(built)
     ns.Log(("layers: %d hold keys bound"):format(#built.holds))
     Tell()
+    -- The flyouts give up a key that became a hold key, and take back one
+    -- that stopped being one. They take our root at the same call, so they
+    -- are told once more when both roots stand.
+    local set = table.concat(L.HoldKeys(), " ")
+    if FallensFlyouts_LayersChanged and (set ~= holdSet or (theirs and not told)) then
+        holdSet, told = set, theirs ~= nil
+        FallensFlyouts_LayersChanged()
+    end
     return true
 end
 
@@ -313,6 +413,15 @@ end
 
 ns.OnStart(function()
     Profiles.OnChange(function() L.Apply() end)
+    if FallensFlyouts_Layers then
+        FallensFlyouts_Layers({
+            Held = function() return L.Held() ~= nil end,
+            HoldKeys = L.HoldKeys,
+            Root = function() return root end,
+        })
+    end
+    -- a flyout made, moved or removed changes what a key for its button is bound to
+    if FallensFlyouts_Watch then FallensFlyouts_Watch(function() L.Apply() end) end
     local events = CreateFrame("Frame")
     events:RegisterEvent("PLAYER_REGEN_ENABLED")
     events:RegisterEvent("UPDATE_BINDINGS")

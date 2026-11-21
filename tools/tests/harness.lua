@@ -104,13 +104,16 @@ function Frame:SetAttribute(k, v)
     if self.scripts.OnAttributeChanged then self.scripts.OnAttributeChanged(self, k, v) end
 end
 function Frame:GetAttribute(k) return self.attrs[k] end
+-- as the client: a frame ref is kept as an attribute, and only a snippet can ask for it by GetFrameRef
 function Frame:SetFrameRef(label, frame)
     allowed(self, "SetFrameRef")
     assert(type(frame) == "table", "SetFrameRef wants a frame")
-    self.refs = self.refs or {}
-    self.refs[label] = frame
+    self.attrs["frameref-" .. label] = frame
 end
-function Frame:GetFrameRef(label) return self.refs and self.refs[label] end
+function Frame:GetFrameRef(label)
+    assert(W.secure, "GetFrameRef is a snippet's call: plain code has none")
+    return self.attrs["frameref-" .. label]
+end
 function Frame:SetScript(k, fn) self.scripts[k] = fn end
 function Frame:GetScript(k) return self.scripts[k] end
 function Frame:HookScript(k, fn)
