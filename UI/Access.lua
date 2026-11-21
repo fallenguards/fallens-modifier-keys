@@ -14,7 +14,8 @@ local TEXT = {
 A.TEXT = TEXT
 -- the game's own minimap button art: the ring, the dark disc under the icon, the highlight
 local RING, DISC, GLOW = 136430, 136467, 136477
-local ICON = "Interface\\Icons\\INV_Misc_Key_14"
+-- the key of the addon's logo, by itself: the whole logo is too small to read at this size
+local ICON = "Interface\\AddOns\\FallensModifierKeys\\media\\key"
 -- where it starts, in degrees around the minimap; how far past the edge it sits
 local START, OUT = 215, 5
 

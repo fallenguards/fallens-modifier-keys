@@ -3,7 +3,7 @@
 ## Notes: Turn any key into a modifier. Hold it and your action keys press another action bar.
 ## Author: justawower
 ## Version: 1.0.0
-## IconTexture: Interface\Icons\INV_Misc_Key_14
+## IconTexture: Interface\AddOns\FallensModifierKeys\media\icon
 ## Category: Action Bars
 ## AddonCompartmentFunc: FallensModifierKeys_OnAddonCompartmentClick
 ## SavedVariables: FallensModifierKeysDB
