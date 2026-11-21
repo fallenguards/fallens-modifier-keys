@@ -84,12 +84,22 @@ local function Next()
     return spare
 end
 
+-- A new hold key and its line. With no key given the line stands with its
+-- key still to be set (one such at a time: asked again, it is that one).
 function M.AddHold(pressed)
     if Profiles.Busy() then return nil, TEXT.fight end
-    local key, why = M.Key(pressed)
-    if not key then return nil, why end
-    if HoldAt(key) then return nil, TEXT.taken:format(M.Label(key)) end
     local holds = Data().holds
+    local key = false
+    if pressed == nil then
+        for i, hold in ipairs(holds) do
+            if not hold.key then return i end
+        end
+    else
+        local why
+        key, why = M.Key(pressed)
+        if not key then return nil, why end
+        if HoldAt(key) then return nil, TEXT.taken:format(M.Label(key)) end
+    end
     holds[#holds + 1] = { key = key, lines = { { what = "keys", to = Next() } }, binds = {} }
     Done()
     return #holds
@@ -238,9 +248,11 @@ function M.Seed()
     local data = Data()
     for i = #data.holds, 1, -1 do
         local hold = data.holds[i]
-        if type(hold) ~= "table" or type(hold.key) ~= "string" then
+        if type(hold) ~= "table" then
             table.remove(data.holds, i)
         else
+            -- a line may stand with its key still to be set
+            if type(hold.key) ~= "string" or hold.key == "" then hold.key = false end
             if type(hold.lines) ~= "table" then hold.lines = {} end
             if type(hold.binds) ~= "table" then hold.binds = {} end
         end

@@ -38,7 +38,7 @@ for _, m in ipairs({ "ClearAllPoints", "RegisterForClicks", "EnableMouse", "SetA
     "SetJustifyH", "SetJustifyV", "SetFrameStrata", "SetMovable", "SetClampedToScreen", "RegisterForDrag",
     "SetAutoFocus", "SetFontObject", "SetTextColor", "SetWordWrap", "SetBlendMode", "SetMaxLetters",
     "StartMoving", "StopMovingOrSizing", "SetToplevel", "SetNormalFontObject", "SetHighlightFontObject",
-    "SetAlpha" }) do
+    "SetAlpha", "SetHighlightTexture", "SetTexture", "AddLine" }) do
     Frame[m] = noop
 end
 local function region() return setmetatable({ scripts = {}, attrs = {}, shown = true }, Frame) end
@@ -90,6 +90,9 @@ function Frame:IsVisible() return self.shown and (not self.parent or self.parent
 function Frame:GetName() return self.name end
 function Frame:GetID() return self.id or 0 end
 function Frame:GetParent() return self.parent end
+function Frame:SetParent(parent) self.parent = parent end
+function Frame:GetCenter() return self.cx or 0, self.cy or 0 end
+function Frame:GetEffectiveScale() return 1 end
 function Frame:IsForbidden() return false end
 function Frame:IsObjectType(t) return self.otype == t end
 function Frame:IsProtected() return self.protected or false end
@@ -224,6 +227,16 @@ end
 function IsKeyDown(key) return W.keyDown[key] or false end
 function IsMouseButtonDown(name) return W.keyDown[(name:upper())] or false end
 function GetBindingText(key) return key end
+function GetCursorPosition() return W.mouseX or 0, W.mouseY or 0 end
+-- the game's options: an addon's page is a frame shown when its name is picked in the list
+Settings = {
+    RegisterCanvasLayoutCategory = function(page, title)
+        local category = { page = page, title = title }
+        function category:GetID() return title end
+        return category
+    end,
+    RegisterAddOnCategory = function(category) Settings.listed = category end,
+}
 date = os.date
 function debugstack() return "" end
 C_CVar = { GetCVar = function() return "1" end }
@@ -315,6 +328,8 @@ local function boot(alone)
     W.base.F = "MULTIACTIONBAR1BUTTON2"
     SlashCmdList = {}
     UIParent = CreateFrame("Frame", "UIParent")
+    Minimap = CreateFrame("Frame", "Minimap", UIParent)
+    Minimap.w, Minimap.h, Minimap.cx, Minimap.cy = 140, 140, 1000, 900
     for n, spec in ipairs(GAME_BARS) do
         local bar = CreateFrame("Frame", spec[4], UIParent)
         bar.attrs.actionpage = spec[3]

@@ -4,8 +4,10 @@ local _, ns = ...
 -- luacheck: read globals CreateFrame UIParent InCombatLockdown C_Timer GetTime GameTooltip GetBindingText
 -- luacheck: read globals CreateKeyChordStringUsingMetaKeyState NineSliceUtil
 
--- The one window: the action keys, the hold keys, each on a line. /fmk opens
--- it, and it opens by itself the first time the addon is loaded.
+-- The setup: the action keys, the modifier keys, each on a line. It stands
+-- in a window of its own (/fmk, the minimap button; by itself the first
+-- time the addon is loaded) or on the addon's page in the game's options:
+-- one set of controls, moved to whichever is looked at.
 local UI = {}
 ns.Window = UI
 local Model, Bars, Profiles = ns.Model, ns.Bars, ns.Profiles
@@ -35,6 +37,7 @@ local TEXT = {
     tap = "Tap",
     modeTip = "Hold: its bar is in use while the key is down. Tap: after a tap, for the next key you press.",
     addHold = "Add a modifier key",
+    setKey = "Set key",
     press = "Press a key",
     waitHold = "Press the key or mouse button to use as a modifier. Escape cancels.",
     keysPress = "Action keys press",
@@ -48,6 +51,7 @@ local TEXT = {
     all = "%s (every character)",
     fight = "The window opens out of a fight.",
     welcome = "Type /fmk to set up your modifier keys.",
+    later = "You can modify this at any time later via \"/fmk\", the minimap icon, or the addon settings window.",
     moreTip = "Switch one more bar with this key.",
     lessTip = "Take this line off.",
 }
@@ -63,7 +67,7 @@ local ALONE = { LSHIFT = true, RSHIFT = true, LCTRL = true, RCTRL = true, LALT =
 -- these empty a box
 local CLEAR = { BACKSPACE = true, DELETE = true }
 
-local window, catcher, capture
+local shell, window, catcher, capture
 local rows = {}
 local keyAt = 0
 
@@ -200,6 +204,14 @@ local function FillProfiles(_, root)
     end
 end
 
+-- a row's key button waits for its key
+function UI.WaitFor(row)
+    local index = row.i
+    Capture(function(key) return Model.SetHoldKey(index, key) end, TEXT.waitHold, "holds")
+    capture.row = row
+    UI.Refresh()
+end
+
 -- one line of a hold key: its key (on its first line), what changes, the bar it goes to
 local function Row(n, i, j)
     if rows[n] then
@@ -212,6 +224,7 @@ local function Row(n, i, j)
         local hold = Profiles.Data().holds[row.i]
         return hold and hold.lines[row.j]
     end
+    -- while it waits, a mouse button clicked on it is the key
     row.key = Push(TEXT.press, function(_, mouse)
         local taken = MOUSE[mouse]
         if capture and capture.row == row then
@@ -219,10 +232,7 @@ local function Row(n, i, j)
             return
         end
         if taken then return end
-        local index = row.i
-        Capture(function(key) return Model.SetHoldKey(index, key) end, TEXT.waitHold, "holds")
-        capture.row = row
-        UI.Refresh()
+        UI.WaitFor(row)
     end)
     row.key:RegisterForClicks("AnyUp")
     row.key:SetSize(KEY_W, LINE)
@@ -282,29 +292,33 @@ end
 
 local function Build()
     -- starts shown: hidden before its OnShow is set
-    window = CreateFrame("Frame", NAME, UIParent)
-    window:Hide()
+    shell = CreateFrame("Frame", NAME, UIParent)
+    shell:Hide()
     -- the game's own dialog border over a dark backing, as its own windows wear it
-    local back = window:CreateTexture(nil, "BACKGROUND")
-    back:SetPoint("TOPLEFT", window, "TOPLEFT", 4, -4)
-    back:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -4, 4)
+    local back = shell:CreateTexture(nil, "BACKGROUND")
+    back:SetPoint("TOPLEFT", shell, "TOPLEFT", 4, -4)
+    back:SetPoint("BOTTOMRIGHT", shell, "BOTTOMRIGHT", -4, 4)
     back:SetColorTexture(0.03, 0.03, 0.04, 0.92)
-    if NineSliceUtil and NineSliceUtil.ApplyLayoutByName then NineSliceUtil.ApplyLayoutByName(window, "Dialog") end
-    local title = window:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-    title:SetPoint("TOP", window, "TOP", 0, -16)
+    if NineSliceUtil and NineSliceUtil.ApplyLayoutByName then NineSliceUtil.ApplyLayoutByName(shell, "Dialog") end
+    local title = shell:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    title:SetPoint("TOP", shell, "TOP", 0, -16)
     title:SetText(TITLE)
-    local close = CreateFrame("Button", nil, window, "UIPanelCloseButton")
-    close:SetPoint("TOPRIGHT", window, "TOPRIGHT", -4, -4)
+    local close = CreateFrame("Button", nil, shell, "UIPanelCloseButton")
+    close:SetPoint("TOPRIGHT", shell, "TOPRIGHT", -4, -4)
+    shell:SetWidth(WIDTH)
+    shell:SetPoint("LEFT", UIParent, "LEFT", 80, 80)
+    shell:SetFrameStrata("DIALOG")
+    shell:SetToplevel(true)
+    shell:SetClampedToScreen(true)
+    shell:SetMovable(true)
+    shell:EnableMouse(true)
+    shell:RegisterForDrag("LeftButton")
+    shell:SetScript("OnDragStart", shell.StartMoving)
+    shell:SetScript("OnDragStop", shell.StopMovingOrSizing)
+    -- every control sits on this: in the window, or on the page in the game's options
+    window = CreateFrame("Frame", nil, shell)
     window:SetWidth(WIDTH)
-    window:SetPoint("LEFT", UIParent, "LEFT", 80, 80)
-    window:SetFrameStrata("DIALOG")
-    window:SetToplevel(true)
-    window:SetClampedToScreen(true)
-    window:SetMovable(true)
-    window:EnableMouse(true)
-    window:RegisterForDrag("LeftButton")
-    window:SetScript("OnDragStart", window.StartMoving)
-    window:SetScript("OnDragStop", window.StopMovingOrSizing)
+    window:SetPoint("TOPLEFT", shell, "TOPLEFT")
     window:SetScript("OnHide", function() UI.EndCapture() end)
     catcher = Catcher()
 
@@ -341,21 +355,18 @@ local function Build()
     window.holdsHead = Text("GameFontNormalLarge", TEXT.holdsHead)
     window.holdsWarn = Text("GameFontRed", TEXT.holdsWarn)
     window.holdsWait = Text("GameFontHighlight", TEXT.waitHold)
-    -- while it waits, a mouse button clicked on it is the key
-    window.addHold = Push(TEXT.addHold, function(_, mouse)
-        local taken = MOUSE[mouse]
-        if capture and capture.add then
-            if taken then UI.Pressed(taken) else UI.EndCapture() end
-            return
+    -- the new key's line stands at once, its key button waiting
+    window.addHold = Push(TEXT.addHold, function()
+        UI.EndCapture()
+        local index, why = Model.AddHold()
+        if not index then return Warn(why) end
+        for _, row in ipairs(rows) do
+            if row.i == index and row.j == 1 and row.key:IsShown() then return UI.WaitFor(row) end
         end
-        if taken then return end
-        Capture(function(key) return Model.AddHold(key) end, TEXT.waitHold, "holds")
-        capture.add = true
-        UI.Refresh()
     end)
-    window.addHold:RegisterForClicks("AnyUp")
     window.tryHead = Text("GameFontNormalLarge", TEXT.tryHead)
     window.tryNote = Text("GameFontHighlight", TEXT.tryNote)
+    window.later = Text("GameFontHighlight", TEXT.later)
     window.profileLabel = Text("GameFontNormal", TEXT.profile)
     window.profileLabel:SetWidth(0)
     window.profiles = Drop(KEYS_W, FillProfiles)
@@ -365,7 +376,7 @@ end
 
 -- lays every piece out again from the profile in use
 function UI.Refresh()
-    if not (window and window:IsShown()) then return end
+    if not (window and window:IsVisible()) then return end
     local data = Profiles.Data()
     local y = Line(window.intro, TOP, GAP * 2)
 
@@ -397,7 +408,8 @@ function UI.Refresh()
             local row = Row(used, i, j)
             local first = j == 1
             row.key:SetShown(first)
-            row.key:SetText(capture and capture.row == row and TEXT.press or Model.Label(hold.key))
+            row.key:SetText(capture and capture.row == row and TEXT.press
+                or (hold.key and Model.Label(hold.key) or TEXT.setKey))
             row.key:ClearAllPoints()
             Place(row.key, 0, y)
             row.mode:SetShown(first)
@@ -432,8 +444,6 @@ function UI.Refresh()
         row.key:Hide(); row.mode:Hide(); row.what:Hide(); row.to:Hide(); row.less:Hide(); row.more:Hide()
         row.note:Hide()
     end
-    window.addHold:SetText(capture and capture.add and TEXT.press or TEXT.addHold)
-    Fit(window.addHold)
     window.addHold:ClearAllPoints()
     Place(window.addHold, 0, y)
     y = y + LINE + GAP * 2
@@ -446,21 +456,47 @@ function UI.Refresh()
     window.profiles:ClearAllPoints()
     window.profiles:SetPoint("LEFT", window.profileLabel, "RIGHT", GAP, 0)
     window.profiles:GenerateMenu()
-    window:SetHeight(y + LINE + EDGE)
+    y = Line(window.later, y + LINE + GAP * 2, 0)
+    window:SetHeight(y + EDGE)
+    shell:SetHeight(y + EDGE)
 end
 
-function UI.Open()
-    if InCombatLockdown() then return ns.Say(TEXT.fight) end
+-- the controls go where they are looked at: the window (no parent named) or a page
+local function Seat(page)
     ns.Start()
     if not window then Build() end
     -- the bars are looked for anew: one may have come or gone
     ns.Layers.Apply(false, true)
+    local parent = page or shell
+    window:SetParent(parent)
+    window:ClearAllPoints()
+    window:SetPoint("TOPLEFT", parent, "TOPLEFT")
     window:Show()
+end
+
+function UI.Open()
+    if InCombatLockdown() then return ns.Say(TEXT.fight) end
+    Seat()
+    shell:Show()
     UI.Refresh()
 end
 
+-- on the addon's page in the game's options
+function UI.Dock(page)
+    Seat(page)
+    shell:Hide()
+    UI.Refresh()
+end
+
+function UI.Shown() return shell ~= nil and shell:IsShown() end
+
+function UI.Close()
+    UI.EndCapture()
+    if shell then shell:Hide() end
+end
+
 function UI.Toggle()
-    if window and window:IsShown() then return window:Hide() end
+    if UI.Shown() then return UI.Close() end
     UI.Open()
 end
 
@@ -471,9 +507,7 @@ ns.OnStart(function()
     Profiles.OnChange(function() UI.Refresh() end)
     local events = CreateFrame("Frame")
     events:RegisterEvent("PLAYER_REGEN_DISABLED")
-    events:SetScript("OnEvent", function()
-        if window then window:Hide() end
-    end)
+    events:SetScript("OnEvent", UI.Close)
     -- once per account: the window is where everything starts
     if not ns.db.welcomed then
         C_Timer.After(2, function()
