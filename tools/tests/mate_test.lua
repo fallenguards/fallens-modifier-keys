@@ -50,12 +50,13 @@ preload = function()
                 end
             end
         end
-        local holds = {}
-        for _, key in ipairs(fly.provider and fly.provider.HoldKeys() or {}) do holds[key] = true end
+        -- an open flyout's picks are bound, hold keys too; only a hold key that is down now is left alone
         local open = fly.root:GetAttribute("open")
         for i = 1, open and fly.root:GetAttribute("pkeys" .. open) or 0 do
             local key = fly.root:GetAttribute("pkey" .. open .. "_" .. i)
-            if not holds[key] then fly.root:SetBindingClick(true, key, "FallensFlyoutsEntry" .. open .. "_" .. i) end
+            if not (mine and mine:GetAttribute("hdown_" .. key)) then
+                fly.root:SetBindingClick(true, key, "FallensFlyoutsEntry" .. open .. "_" .. i)
+            end
         end
         W.secure = was
     end
@@ -127,15 +128,16 @@ check(does("2") == "MULTIACTIONBAR1BUTTON2", "its flyout shut: 2 is the second b
 release("1")
 check(fly.provider.Held() == false and does("5") == "ACTIONBUTTON5", "let go: 5 is the main bar's fifth")
 
-print("== a hold pressed while a flyout is open")
+print("== a hold key pressed while a flyout is open")
 fly.open(3)
+check(does("1") == "CLICK FallensFlyoutsEntry3_1:LeftButton", "the hold key is that flyout's first pick while it is open")
 press("1")
-check(does("2") == "CLICK FallensFlyoutsEntry3_2:LeftButton" and does("3") == "CLICK FallensFlyoutsEntry3_3:LeftButton",
-    "its pick keys stay its own")
-check(does("4") == "MULTIACTIONBAR1BUTTON4", "the other layer keys are bound")
+check(fly.provider.Held() == false and does("2") == "CLICK FallensFlyoutsEntry3_2:LeftButton"
+    and does("3") == "CLICK FallensFlyoutsEntry3_3:LeftButton", "pressed, it goes to the flyout: no layer comes on")
 check(does("ESCAPE") == "TOGGLEGAMEMENU", "nothing of this addon's is on its shut key")
 release("1")
 fly.open(nil)
+check(does("1") == "CLICK FallensModifierKeysHold1:LeftButton", "the flyout shut: 1 is the hold key again")
 
 print("== a flyout made or removed")
 fly.host("MultiBarBottomLeftButton4", 2)
@@ -209,6 +211,30 @@ check(passed and _G[passed]:GetAttribute("macrotext") == "/click FallensFlyoutsO
 tap("ESCAPE")
 check(NS.Layers.Held() == nil and M.SetTap(1, false) == true and M.SetLine(1, 1, "ActionButton", "MultiBarBottomLeftButton") == true,
     "Escape ends it; 1 is held again")
+
+print("== an open flyout's keys win over a hold key")
+local first, HOLD1 = "CLICK FallensFlyoutsEntry6_1:LeftButton", "CLICK FallensModifierKeysHold1:LeftButton"
+fly.open(6)
+check(does("1") == first, "a flyout open: 1 picks its first, though 1 is a hold key")
+press("1")
+release("1")
+check(NS.Layers.Held() == nil and _G.ActionButton2.action == 2, "pressed, it switches no bar")
+NS.Layers.Apply(true)
+check(does("1") == first, "this addon binds again while the flyout is open: 1 is still the flyout's")
+fly.open(nil)
+check(does("1") == HOLD1, "the flyout shuts: 1 is the hold key again at once")
+NS.Layers.Apply(true)
+fly.open(6)
+fly.open(nil)
+check(does("1") == HOLD1, "opened and shut with nothing bound here between: the same")
+press("1")
+fly.open(6)
+check(does("1") == HOLD1, "a flyout opened while 1 is held down: 1 stays the hold key, so its release is heard")
+release("1")
+check(NS.Layers.Held() == nil and _G.FallensModifierKeysRoot:GetAttribute("hdown_1") == nil,
+    "let go: its layer is off, and the key is no longer marked as down")
+fly.open(nil)
+NS.Layers.Apply(true)
 
 print("== the hold key is given up")
 changed = fly.changed

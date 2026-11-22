@@ -20,7 +20,10 @@ L.ROOT, L.HOLD, L.KEY = ROOT, HOLD, KEY
 -- and leaves an opener key of its own unbound while the held layer has it.
 -- Its binding runs only when a flyout opens or shuts, so once that layer is
 -- off the key is bound here to its opener, as it binds it ("lany_<KEY>":
--- the keys any layer takes).
+-- the keys any layer takes). While a flyout is open its keys are its own,
+-- a hold key among them too, but for one that is down then ("hdown_<KEY>",
+-- set from a held key's press to its release): bound over, its release
+-- would be lost.
 local FLYOUTS_ROOT = "FallensFlyoutsRoot"
 -- a release the game never sent (the window lost focus) is looked for this often
 local STUCK_EVERY, STUCK_AFTER = 0.25, 2
@@ -48,12 +51,10 @@ local SWAP = [[
     end
 ]]
 -- Every hold key on its button, then the held one's keys on top; a key
--- that picks from or shuts an open flyout stays that flyout's.
+-- that picks from or shuts an open flyout stays that flyout's, a hold key
+-- too.
 local BIND = [[
     owner:ClearBindings()
-    for i = 1, owner:GetAttribute("holds") or 0 do
-        owner:SetBindingClick(true, owner:GetAttribute("hkey" .. i), owner:GetAttribute("hname" .. i))
-    end
     do
         local theirs = owner:GetFrameRef("flyouts")
         local open = theirs and theirs:GetAttribute("open")
@@ -65,6 +66,11 @@ local BIND = [[
             for i = 1, theirs:GetAttribute("ckeys") or 0 do
                 kept[theirs:GetAttribute("ckey" .. i) or ""] = true
             end
+        end
+        -- a hold key the open flyout uses is bound under that flyout's own binding, and is ours again when it shuts
+        for i = 1, owner:GetAttribute("holds") or 0 do
+            local key = owner:GetAttribute("hkey" .. i)
+            owner:SetBindingClick(not kept[key], key, owner:GetAttribute("hname" .. i))
         end
         for j = 1, now and owner:GetAttribute("binds" .. now) or 0 do
             local at = now .. "_" .. j
@@ -104,12 +110,15 @@ local HOLD_WRAP = [[
         owner:SetAttribute("layer", now)
         return false
     end
+    local mine = "hdown_" .. owner:GetAttribute("hkey" .. self:GetAttribute("index"))
     if down then
         seq = (seq or 0) + 1
         self:SetAttribute("stamp", seq)
+        owner:SetAttribute(mine, true)
     else
         if not self:GetAttribute("stamp") then return false end
         self:SetAttribute("stamp", nil)
+        owner:SetAttribute(mine, nil)
     end
     local top, best
     for i = 1, owner:GetAttribute("holds") or 0 do
@@ -128,6 +137,7 @@ local HOLD_WRAP = [[
 local RESET = "local owner = self\n" .. UNSWAP .. [[
     for i = 1, owner:GetAttribute("holds") or 0 do
         owner:GetFrameRef("hold" .. i):SetAttribute("stamp", nil)
+        owner:SetAttribute("hdown_" .. (owner:GetAttribute("hkey" .. i) or ""), nil)
     end
     seq = 0
     owner:SetAttribute("latched", nil)
