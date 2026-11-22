@@ -243,8 +243,12 @@ local function Row(n, i, j)
         local hold = Profiles.Data().holds[row.i]
         return hold and hold.lines[row.j]
     end
-    -- while it waits, a mouse button clicked on it is the key
+    -- while it waits, a mouse button clicked on it is the key; a right-click empties it, waiting or not
     row.key = Push(TEXT.press, function(_, mouse)
+        if mouse == "RightButton" then
+            UI.EndCapture()
+            return Warn(select(2, Model.SetHoldKey(row.i, nil)))
+        end
         local taken = MOUSE[mouse]
         if capture and capture.row == row then
             if taken then UI.Pressed(taken) else UI.EndCapture() end

@@ -126,6 +126,26 @@ typeKey("X")
 check(NS.Profiles.Data().holds[1].key == "X" and rows[1].key:GetText() == "X", "X it is")
 check(GetBindingAction("Z", true) == "TOGGLESHEATH", "Z does what it did before")
 
+print("== a right-click on the key button")
+local before = GetBindingAction("X", true)
+clickOn(rows[1].key)
+check(rows[1].key:GetText() == NS.Window.TEXT.press and W.focus ~= nil, "it waits")
+clickOn(rows[1].key, "RightButton")
+check(W.focus == nil and NS.Profiles.Data().holds[1].key == false and rows[1].key:GetText() == NS.Window.TEXT.setKey,
+    "a right-click while it waits: the wait is over and the key is emptied: " .. tostring(rows[1].key:GetText()))
+check(#NS.Profiles.Data().holds == 1 and before:find("FallensModifierKeysHold", 1, true) ~= nil
+    and not GetBindingAction("X", true):find("FallensModifierKeysHold", 1, true),
+    "the line stays, and X is no modifier key: " .. GetBindingAction("X", true))
+clickOn(rows[1].key)
+typeKey("X")
+check(NS.Profiles.Data().holds[1].key == "X", "X is set again")
+clickOn(rows[1].key, "RightButton")
+check(NS.Profiles.Data().holds[1].key == false and W.focus == nil and rows[1].key:GetText() == NS.Window.TEXT.setKey,
+    "a right-click on a set key empties it, and nothing waits")
+clickOn(rows[1].key)
+typeKey("X")
+check(NS.Profiles.Data().holds[1].key == "X" and rows[1].key:GetText() == "X", "and X once more, for what follows")
+
 print("== a key box")
 local list
 clickOn(window.boxes[8])

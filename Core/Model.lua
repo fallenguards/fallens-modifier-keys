@@ -105,10 +105,15 @@ function M.AddHold(pressed)
     return #holds
 end
 
+-- no key given: the line stays, its key to be set again
 function M.SetHoldKey(i, pressed)
     if Profiles.Busy() then return nil, TEXT.fight end
     local hold = Data().holds[i]
     if not hold then return nil end
+    if pressed == nil then
+        hold.key = false
+        return Done()
+    end
     local key, why = M.Key(pressed)
     if not key then return nil, why end
     if HoldAt(key, i) then return nil, TEXT.taken:format(M.Label(key)) end
