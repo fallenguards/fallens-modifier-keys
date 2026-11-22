@@ -385,14 +385,10 @@ local function Build()
         label:SetText(text)
         window.cols[n] = label
     end
-    -- the new key's line stands at once, its key button waiting
+    -- the new key's line stands at once; it waits for a key only when its key button is clicked
     window.addHold = Push(TEXT.addHold, function()
         UI.EndCapture()
-        local index, why = Model.AddHold()
-        if not index then return Warn(why) end
-        for _, row in ipairs(rows) do
-            if row.i == index and row.j == 1 and row.key:IsShown() then return UI.WaitFor(row) end
-        end
+        Warn(select(2, Model.AddHold()))
     end)
     window.tryHead = Text("GameFontNormalLarge", TEXT.tryHead)
     window.tryNote = Text("GameFontHighlight", TEXT.tryNote)

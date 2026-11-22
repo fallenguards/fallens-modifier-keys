@@ -33,7 +33,10 @@ print("== a modifier key: its line stands at once")
 clickOn(window.addHold)
 local holds = NS.Profiles.Data().holds
 check(#holds == 1 and holds[1].key == false, "Add a modifier key adds its line right away, the key still to be set")
-check(rows[1].key:IsShown() and rows[1].key:GetText() == NS.Window.TEXT.press and W.focus ~= nil, "the line's key button waits for the key")
+check(rows[1].key:IsShown() and rows[1].key:GetText() == NS.Window.TEXT.setKey and W.focus == nil,
+    "its key button reads Set key and waits for nothing: " .. tostring(rows[1].key:GetText()))
+clickOn(rows[1].key)
+check(rows[1].key:GetText() == NS.Window.TEXT.press and W.focus ~= nil, "clicked, the key button waits for the key")
 check(rows[1].mode:IsShown() and rows[1].what:IsShown() and rows[1].to.Text:GetText() == "Action Bar 2",
     "the rest of the line is there already: Hold or Tap, what changes, the bar")
 check(window.holdsWait:IsShown() and not window.holdsWarn:IsShown(), "while it waits, the line under the heading says what to press")
@@ -57,7 +60,11 @@ release("Z")
 
 print("== a mouse button as a modifier key")
 clickOn(window.addHold)
-check(#holds == 2 and rows[2].key:GetText() == NS.Window.TEXT.press, "a second line stands, waiting")
+check(#holds == 2 and rows[2].key:GetText() == NS.Window.TEXT.setKey and W.focus == nil, "a second line stands, its key to be set")
+clickOn(rows[2].key, "Button4")
+check(holds[2].key == false, "a mouse button on a key button that is not waiting sets nothing")
+clickOn(rows[2].key)
+check(rows[2].key:GetText() == NS.Window.TEXT.press, "clicked, it waits")
 clickOn(rows[2].key, "Button4")
 check(holds[2].key == "BUTTON4" and rows[2].key:GetText() == "BUTTON4", "mouse button 4, clicked on the waiting button, is its key")
 -- the game's name for it is wider than the button
@@ -80,6 +87,7 @@ check(window.cols[1]:IsShown() and window.cols[1]:GetText() == "Key" and window.
     and window.cols[3]:GetText() == "What it does" and window.cols[4]:GetText() == "Which bar",
     "each control of a modifier key's line has a label over it")
 clickOn(window.addHold)
+clickOn(rows[3].key)
 typeKey("ESCAPE")
 check(#holds == 3 and holds[3].key == false and W.focus == nil and rows[3].key:GetText() == NS.Window.TEXT.setKey,
     "Escape ends the wait; the line stays, its key to be set")
@@ -87,8 +95,8 @@ press("Z")
 check(GetBindingAction("3", true) == "MULTIACTIONBAR1BUTTON3", "a line with no key yet changes nothing for the others")
 release("Z")
 clickOn(window.addHold)
-check(#holds == 3 and rows[3].key:GetText() == NS.Window.TEXT.press, "Add again waits on that same line, adds no other")
-typeKey("ESCAPE")
+check(#holds == 3 and rows[3].key:GetText() == NS.Window.TEXT.setKey and W.focus == nil,
+    "Add again, a line still without a key: no other line is added, nothing waits")
 clickOn(rows[3].less)
 check(#holds == 2 and not rows[3].key:IsShown(), "its minus takes the line off")
 
