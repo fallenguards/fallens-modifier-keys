@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.0.1] - 2026-11-22
+
+### Fixed
+- With a Fallen's Flyouts flyout open, its keys are the flyout's even when one of them is a modifier key: 1 picks its first icon again, and is the modifier key once the flyout shuts. Needs Fallen's Flyouts 1.1.3 or later.
+
 ## [1.0.0] - 2026-11-21
 
 ### Added

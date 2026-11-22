@@ -2,7 +2,7 @@
 ## Title: Fallen's Modifier Keys and Action Bar Pages
 ## Notes: Turn any key into a modifier. Hold it and your action keys press another action bar.
 ## Author: justawower
-## Version: 1.0.0
+## Version: 1.0.1
 ## X-Curse-Project-ID: 1822297
 ## IconTexture: Interface\AddOns\FallensModifierKeys\media\icon
 ## Category: Action Bars
