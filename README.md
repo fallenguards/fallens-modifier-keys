@@ -4,7 +4,7 @@ Turn any key or mouse button into a modifier, for World of Warcraft. Hold it, or
 
 1. Type `/fmk`. The setup opens by itself the first time.
 2. Set your action keys: the keys of one of your bars, or your own, in twelve boxes. Click a box and press its key.
-3. Click Add a modifier key and press the key or mouse button. Pick Hold or Tap, and the bar it goes to.
+3. Click Add a modifier key, click its key button and press the key or mouse button. Pick Hold or Tap, and the bar it goes to.
 
 While the modifier is on, that bar lights up and shows your keys on its buttons.
 

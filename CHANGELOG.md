@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.1.0] - 2026-11-22
+
+### Changed
+- The key buttons in the setup are the game's own key binding buttons. Click one and it lights up, and a line at the bottom of the window says what it is waiting for. Escape or a second click cancels, and a right-click empties the key.
+- Add a modifier key adds the line and no longer waits for a key right away: click the line's key button to set it.
+
+### Added
+- Labels over a modifier key's controls: Key, Hold or tap, What it does, Which bar.
+
+### Fixed
+- A long key name such as Mouse Button 4 no longer runs out of its button. A name too long to fit ends in dots, and hovering shows all of it.
+
 ## [1.0.1] - 2026-11-22
 
 ### Fixed
