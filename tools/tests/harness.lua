@@ -57,6 +57,13 @@ function Frame:GetTextWidth() return #(self.text or "") * 7 end
 function Frame:SetPoint(...) self.point = { ... } end
 function Frame:SetAtlas(atlas) self.atlas = atlas end
 function Frame:SetText(v) self.text = v end
+-- a button's text: cut short when the button is narrower than it
+function Frame:GetFontString()
+    self.label = self.label or region()
+    self.label.of = self
+    return self.label
+end
+function Frame:IsTruncated() return self.of ~= nil and self.of:GetTextWidth() > self.of:GetWidth() - 12 end
 function Frame:GetText() return self.text end
 function Frame:SetFrameLevel(level) self.level = level end
 function Frame:GetFrameLevel() return self.level or 1 end
@@ -199,7 +206,7 @@ end
 
 DEFAULT_CHAT_FRAME = { AddMessage = function(_, msg) W.chat[#W.chat + 1] = msg end }
 UIErrorsFrame = { AddMessage = function(_, msg) W.errors[#W.errors + 1] = msg end }
-GameTooltip = setmetatable({ SetOwner = noop, AddLine = noop }, Frame)
+GameTooltip = setmetatable({ SetOwner = noop, AddLine = noop, scripts = {}, attrs = {} }, Frame)
 function GetTime() return W.clock end
 function InCombatLockdown() return W.combat end
 C_Timer = {

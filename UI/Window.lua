@@ -22,6 +22,8 @@ local BOX_GAP, NUMBER_H = 3, 14
 local BOX_W = math.floor((INSIDE - BOX_GAP * (Model.SPOTS - 1)) / Model.SPOTS)
 -- floors: a button grows to its text
 local BUTTON_FLOOR, CHROME = 80, 24
+-- a fixed-width button's text keeps this far from its sides
+local CLIP_PAD = 6
 
 local TEXT = {
     intro = "Hold a key and your action keys press another bar. Let go and they are your own again.",
@@ -33,6 +35,10 @@ local TEXT = {
     ownKeys = "Custom key list",
     holdsHead = "2. Your modifier (keys you'll hold) keys",
     holdsWarn = "Warning: this key will now only serve to activate the action bar you set here.",
+    colKey = "Key",
+    colMode = "Hold or tap",
+    colWhat = "What it does",
+    colTo = "Which bar",
     hold = "Hold",
     tap = "Tap",
     modeTip = "Hold: its bar is in use while the key is down. Tap: after a tap, for the next key you press.",
@@ -174,6 +180,19 @@ local function Push(label, run, tip)
     return button
 end
 
+-- a button of a fixed width: text too long for it ends in dots, and hovering shows all of it
+local function Clip(button)
+    local text = button:GetFontString()
+    text:ClearAllPoints()
+    text:SetPoint("LEFT", button, "LEFT", CLIP_PAD, 0)
+    text:SetPoint("RIGHT", button, "RIGHT", -CLIP_PAD, 0)
+    text:SetWordWrap(false)
+    button:SetScript("OnEnter", function(self)
+        self.tip = text:IsTruncated() and self.full or nil
+        Tip(self)
+    end)
+end
+
 local function Drop(width, fill)
     local drop = CreateFrame("DropdownButton", nil, window, "WowStyle1DropdownTemplate")
     drop:SetWidth(width)
@@ -236,6 +255,7 @@ local function Row(n, i, j)
     end)
     row.key:RegisterForClicks("AnyUp")
     row.key:SetSize(KEY_W, LINE)
+    Clip(row.key)
     row.mode = Drop(MODE_W, function(_, root)
         root:CreateRadio(TEXT.hold, function() return not Model.Tap(row.i) end,
             function() Warn(select(2, Model.SetTap(row.i, false))) end, "hold")
@@ -347,6 +367,7 @@ local function Build()
         end)
         box:RegisterForClicks("AnyUp")
         box:SetSize(BOX_W, LINE)
+        Clip(box)
         box.number = window:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
         box.number:SetPoint("TOP", box, "BOTTOM", 0, -2)
         box.number:SetText(tostring(i))
@@ -355,6 +376,15 @@ local function Build()
     window.holdsHead = Text("GameFontNormalLarge", TEXT.holdsHead)
     window.holdsWarn = Text("GameFontRed", TEXT.holdsWarn)
     window.holdsWait = Text("GameFontHighlight", TEXT.waitHold)
+    -- what each control of a modifier key's line is
+    window.cols = {}
+    for n, text in ipairs({ TEXT.colKey, TEXT.colMode, TEXT.colWhat, TEXT.colTo }) do
+        local label = window:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+        label:SetJustifyH("LEFT")
+        label:SetWordWrap(false)
+        label:SetText(text)
+        window.cols[n] = label
+    end
     -- the new key's line stands at once, its key button waiting
     window.addHold = Push(TEXT.addHold, function()
         UI.EndCapture()
@@ -392,6 +422,7 @@ function UI.Refresh()
         box:ClearAllPoints()
         Place(box, (i - 1) * (BOX_W + BOX_GAP), y)
         box:SetText(capture and capture.box == i and TEXT.waiting or (spots[i] and Short(spots[i]) or ""))
+        box.full = spots[i] and Model.Label(spots[i]) or nil
     end
     y = y + LINE + NUMBER_H + GAP * 2
 
@@ -401,6 +432,16 @@ function UI.Refresh()
     window.holdsWarn:SetShown(not waiting)
     window.holdsWait:SetShown(waiting)
     y = Line(waiting and window.holdsWait or window.holdsWarn, y)
+    local x = 0
+    for n, width in ipairs({ KEY_W, MODE_W, WHAT_W, TO_W }) do
+        local label = window.cols[n]
+        label:ClearAllPoints()
+        label:SetPoint("TOPLEFT", window, "TOPLEFT", EDGE + x + 2, -y)
+        label:SetPoint("TOPRIGHT", window, "TOPLEFT", EDGE + x + width, -y)
+        label:SetShown(#data.holds > 0)
+        x = x + width + ROW_GAP
+    end
+    if #data.holds > 0 then y = y + window.cols[1]:GetStringHeight() + 3 end
     local used = 0
     for i, hold in ipairs(data.holds) do
         for j in ipairs(hold.lines) do
@@ -408,8 +449,9 @@ function UI.Refresh()
             local row = Row(used, i, j)
             local first = j == 1
             row.key:SetShown(first)
-            row.key:SetText(capture and capture.row == row and TEXT.press
-                or (hold.key and Model.Label(hold.key) or TEXT.setKey))
+            row.key.full = capture and capture.row == row and TEXT.press
+                or (hold.key and Model.Label(hold.key) or TEXT.setKey)
+            row.key:SetText(row.key.full)
             row.key:ClearAllPoints()
             Place(row.key, 0, y)
             row.mode:SetShown(first)

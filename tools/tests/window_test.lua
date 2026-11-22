@@ -60,6 +60,25 @@ clickOn(window.addHold)
 check(#holds == 2 and rows[2].key:GetText() == NS.Window.TEXT.press, "a second line stands, waiting")
 clickOn(rows[2].key, "Button4")
 check(holds[2].key == "BUTTON4" and rows[2].key:GetText() == "BUTTON4", "mouse button 4, clicked on the waiting button, is its key")
+-- the game's name for it is wider than the button
+local named = GetBindingText
+GetBindingText = function(key, ...)
+    if key == "BUTTON4" then return "Mouse Button 4" end
+    return named and named(key, ...) or key
+end
+NS.Window.Refresh()
+GameTooltip.text = nil
+rows[2].key.scripts.OnEnter(rows[2].key)
+check(rows[2].key:GetFontString():IsTruncated() and GameTooltip.text == "Mouse Button 4",
+    "a key name wider than its button is cut short, and hovering shows all of it: " .. tostring(GameTooltip.text))
+GameTooltip.text = nil
+rows[1].key.scripts.OnEnter(rows[1].key)
+check(GameTooltip.text == nil, "a name that fits has no hover text")
+GetBindingText = named
+NS.Window.Refresh()
+check(window.cols[1]:IsShown() and window.cols[1]:GetText() == "Key" and window.cols[2]:GetText() == "Hold or tap"
+    and window.cols[3]:GetText() == "What it does" and window.cols[4]:GetText() == "Which bar",
+    "each control of a modifier key's line has a label over it")
 clickOn(window.addHold)
 typeKey("ESCAPE")
 check(#holds == 3 and holds[3].key == false and W.focus == nil and rows[3].key:GetText() == NS.Window.TEXT.setKey,
