@@ -3,6 +3,7 @@ local _, ns = ...
 -- luacheck: globals FallensModifierKeys_OnAddonCompartmentClick
 -- luacheck: read globals CreateFrame UIParent InCombatLockdown C_Timer GetTime GameTooltip GetBindingText
 -- luacheck: read globals CreateKeyChordStringUsingMetaKeyState NineSliceUtil
+-- luacheck: read globals GRAY_FONT_COLOR NOT_BOUND KEY_BOUND SETTINGS_BIND_KEY_TO_COMMAND_OR_CANCEL
 
 -- The setup: the action keys, the modifier keys, each on a line. It stands
 -- in a window of its own (/fmk, the minimap button; by itself the first
@@ -13,10 +14,16 @@ ns.Window = UI
 local Model, Bars, Profiles = ns.Model, ns.Bars, ns.Profiles
 
 local NAME, TITLE = "FallensModifierKeysWindow", ns.TITLE
-local WIDTH, EDGE, TOP, GAP, LINE = 560, 18, 44, 8, 24
+local WIDTH, EDGE, TOP, GAP, LINE = 580, 18, 44, 8, 24
 local INSIDE = WIDTH - EDGE * 2
 -- one line of a modifier key: key, how it works, what changes, the bar, minus, plus
-local KEY_W, MODE_W, WHAT_W, TO_W, SMALL_W, KEYS_W, ROW_GAP = 84, 84, 150, 136, 24, 230, 4
+local KEY_W, MODE_W, WHAT_W, TO_W, SMALL_W, KEYS_W, ROW_GAP = 104, 84, 150, 136, 24, 230, 4
+-- a key's button is the game's own key binding button, at that page's height
+local KEY_TEMPLATE, KEY_H = "KeyBindingFrameBindingButtonTemplate", 22
+-- the line at the window's foot that says what is waited for: its room is kept when it is empty
+local OUTPUT_H = 14
+-- that line is bright blue under a rule of its own, so it reads as no part of the section over it
+local OUTPUT_COLOR, RULE_H = { 0.3, 0.8, 1 }, 2
 -- the twelve key boxes: as wide as the window lets twelve be
 local BOX_GAP, NUMBER_H = 3, 14
 local BOX_W = math.floor((INSIDE - BOX_GAP * (Model.SPOTS - 1)) / Model.SPOTS)
@@ -29,8 +36,8 @@ local TEXT = {
     intro = "Hold a key and your action keys press another bar. Let go and they are your own again.",
     keysHead = "1. Your action keys",
     keysNote = "The keys your bars will show when your modifier is held. Click a box and press its key.",
-    waitSpot = "Press the key for box %d. Backspace empties it, Escape cancels.",
-    waiting = "...",
+    spotName = "Action key %d",
+    holdName = "Modifier key %d",
     keysOf = "The keys of %s",
     ownKeys = "Custom key list",
     holdsHead = "2. Your modifier (keys you'll hold) keys",
@@ -43,9 +50,6 @@ local TEXT = {
     tap = "Tap",
     modeTip = "Hold: its bar is in use while the key is down. Tap: after a tap, for the next key you press.",
     addHold = "Add a modifier key",
-    setKey = "Set key",
-    press = "Press a key",
-    waitHold = "Press the key or mouse button to use as a modifier. Escape cancels.",
     keysPress = "Action keys press",
     shows = "%s shows",
     hidden = "%s (hidden)",
@@ -74,6 +78,8 @@ local ALONE = { LSHIFT = true, RSHIFT = true, LCTRL = true, RCTRL = true, LALT =
 local CLEAR = { BACKSPACE = true, DELETE = true }
 
 local shell, window, catcher, capture
+-- the line at the window's foot, as the game's key binding page words it
+local said
 local rows = {}
 local keyAt = 0
 
@@ -105,19 +111,27 @@ local function Chord(key)
     return key
 end
 
--- a key is being waited for: fn(key) takes it; `where`: the section whose note says so
-local function Capture(fn, note, where)
-    capture = { fn = fn, note = note, where = where }
+-- a key is being waited for: fn(key) takes it; `name`: what the key is for
+local function Capture(fn, name)
+    capture = { fn = fn }
+    said = SETTINGS_BIND_KEY_TO_COMMAND_OR_CANCEL:format(name, GetBindingText("ESCAPE"))
     catcher:Show()
     catcher:SetFocus()
     UI.Refresh()
 end
 
-function UI.EndCapture()
-    if not capture then return end
-    capture = nil
-    catcher:ClearFocus()
-    catcher:Hide()
+-- bound: a key was taken, and the line at the foot says so
+function UI.EndCapture(bound)
+    local was = capture
+    if capture then
+        capture = nil
+        -- the box losing the focus ends the wait once more: by then there is none
+        catcher:ClearFocus()
+        catcher:Hide()
+    end
+    local text = bound and KEY_BOUND or nil
+    if not was and said == text then return end
+    said = text
     UI.Refresh()
 end
 
@@ -125,8 +139,8 @@ end
 function UI.Pressed(key)
     if not capture or ALONE[key] then return end
     if key == "ESCAPE" then return UI.EndCapture() end
-    local ok, why = capture.fn(key)
-    if ok then return UI.EndCapture() end
+    local ok, why, emptied = capture.fn(key)
+    if ok then return UI.EndCapture(not emptied) end
     Warn(why)
 end
 
@@ -180,17 +194,32 @@ local function Push(label, run, tip)
     return button
 end
 
--- a button of a fixed width: text too long for it ends in dots, and hovering shows all of it
-local function Clip(button)
+-- A key's button: the game's own from its key binding page. Text too long for it ends in dots, and
+-- hovering shows all of it.
+local function KeyButton(width, run)
+    local button = CreateFrame("Button", nil, window, KEY_TEMPLATE)
+    button:SetSize(width, KEY_H)
+    button.SelectedHighlight:SetWidth(width)
     local text = button:GetFontString()
     text:ClearAllPoints()
-    text:SetPoint("LEFT", button, "LEFT", CLIP_PAD, 0)
-    text:SetPoint("RIGHT", button, "RIGHT", -CLIP_PAD, 0)
+    text:SetPoint("LEFT", button, "LEFT", CLIP_PAD, -1)
+    text:SetPoint("RIGHT", button, "RIGHT", -CLIP_PAD, -1)
     text:SetWordWrap(false)
+    button:SetScript("OnClick", run)
     button:SetScript("OnEnter", function(self)
         self.tip = text:IsTruncated() and self.full or nil
         Tip(self)
     end)
+    button:SetScript("OnLeave", NoTip)
+    return button
+end
+
+-- a key button as that page fills it: the key, or a gray Not Bound
+local function ShowKey(button, text, full, waiting)
+    button.full = full
+    button:SetText(text or GRAY_FONT_COLOR:WrapTextInColorCode(NOT_BOUND))
+    button:SetAlpha(full and 1 or 0.8)
+    button:SetSelected(waiting)
 end
 
 local function Drop(width, fill)
@@ -226,7 +255,7 @@ end
 -- a row's key button waits for its key
 function UI.WaitFor(row)
     local index = row.i
-    Capture(function(key) return Model.SetHoldKey(index, key) end, TEXT.waitHold, "holds")
+    Capture(function(key) return Model.SetHoldKey(index, key) end, TEXT.holdName:format(index))
     capture.row = row
     UI.Refresh()
 end
@@ -244,7 +273,7 @@ local function Row(n, i, j)
         return hold and hold.lines[row.j]
     end
     -- while it waits, a mouse button clicked on it is the key; a right-click empties it, waiting or not
-    row.key = Push(TEXT.press, function(_, mouse)
+    row.key = KeyButton(KEY_W, function(_, mouse)
         if mouse == "RightButton" then
             UI.EndCapture()
             return Warn(select(2, Model.SetHoldKey(row.i, nil)))
@@ -257,9 +286,6 @@ local function Row(n, i, j)
         if taken then return end
         UI.WaitFor(row)
     end)
-    row.key:RegisterForClicks("AnyUp")
-    row.key:SetSize(KEY_W, LINE)
-    Clip(row.key)
     row.mode = Drop(MODE_W, function(_, root)
         root:CreateRadio(TEXT.hold, function() return not Model.Tap(row.i) end,
             function() Warn(select(2, Model.SetTap(row.i, false))) end, "hold")
@@ -354,7 +380,7 @@ local function Build()
     -- empties it. A bar's own keys become the player's at the first change.
     window.boxes = {}
     for i = 1, Model.SPOTS do
-        local box = Push("", function(_, mouse)
+        local box = KeyButton(BOX_W, function(_, mouse)
             local taken = MOUSE[mouse]
             if capture and capture.box == i then
                 if taken then UI.Pressed(taken) else UI.EndCapture() end
@@ -363,15 +389,15 @@ local function Build()
             if taken then return end
             if mouse == "RightButton" then return Warn(select(2, Model.SetKey(i, nil))) end
             Capture(function(key)
-                if CLEAR[key] then return Model.SetKey(i, nil) end
+                if CLEAR[key] then
+                    local ok, why = Model.SetKey(i, nil)
+                    return ok, why, true
+                end
                 return Model.SetKey(i, MOUSE[key] and key or Chord(key))
-            end, TEXT.waitSpot:format(i), "keys")
+            end, TEXT.spotName:format(i))
             capture.box = i
             UI.Refresh()
         end)
-        box:RegisterForClicks("AnyUp")
-        box:SetSize(BOX_W, LINE)
-        Clip(box)
         box.number = window:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
         box.number:SetPoint("TOP", box, "BOTTOM", 0, -2)
         box.number:SetText(tostring(i))
@@ -379,7 +405,6 @@ local function Build()
     end
     window.holdsHead = Text("GameFontNormalLarge", TEXT.holdsHead)
     window.holdsWarn = Text("GameFontRed", TEXT.holdsWarn)
-    window.holdsWait = Text("GameFontHighlight", TEXT.waitHold)
     -- what each control of a modifier key's line is
     window.cols = {}
     for n, text in ipairs({ TEXT.colKey, TEXT.colMode, TEXT.colWhat, TEXT.colTo }) do
@@ -397,6 +422,12 @@ local function Build()
     window.tryHead = Text("GameFontNormalLarge", TEXT.tryHead)
     window.tryNote = Text("GameFontHighlight", TEXT.tryNote)
     window.later = Text("GameFontHighlight", TEXT.later)
+    window.output = Text("GameFontWhite")
+    window.output:SetJustifyH("CENTER")
+    window.output:SetTextColor(OUTPUT_COLOR[1], OUTPUT_COLOR[2], OUTPUT_COLOR[3])
+    window.rule = window:CreateTexture(nil, "ARTWORK")
+    window.rule:SetColorTexture(OUTPUT_COLOR[1], OUTPUT_COLOR[2], OUTPUT_COLOR[3], 0.6)
+    window.rule:SetHeight(RULE_H)
     window.profileLabel = Text("GameFontNormal", TEXT.profile)
     window.profileLabel:SetWidth(0)
     window.profiles = Drop(KEYS_W, FillProfiles)
@@ -411,7 +442,6 @@ function UI.Refresh()
     local y = Line(window.intro, TOP, GAP * 2)
 
     y = Line(window.keysHead, y)
-    window.keysNote:SetText(capture and capture.where == "keys" and capture.note or TEXT.keysNote)
     y = Line(window.keysNote, y)
     window.keysDrop:ClearAllPoints()
     Place(window.keysDrop, 0, y)
@@ -421,17 +451,14 @@ function UI.Refresh()
     for i, box in ipairs(window.boxes) do
         box:ClearAllPoints()
         Place(box, (i - 1) * (BOX_W + BOX_GAP), y)
-        box:SetText(capture and capture.box == i and TEXT.waiting or (spots[i] and Short(spots[i]) or ""))
-        box.full = spots[i] and Model.Label(spots[i]) or nil
+        -- too narrow for Not Bound: an empty box is blank
+        ShowKey(box, spots[i] and Short(spots[i]) or "", spots[i] and Model.Label(spots[i]) or nil,
+            capture ~= nil and capture.box == i)
     end
-    y = y + LINE + NUMBER_H + GAP * 2
+    y = y + KEY_H + NUMBER_H + GAP * 2
 
     y = Line(window.holdsHead, y)
-    -- the warning, or while a key is waited for, what to press
-    local waiting = capture ~= nil and capture.where == "holds"
-    window.holdsWarn:SetShown(not waiting)
-    window.holdsWait:SetShown(waiting)
-    y = Line(waiting and window.holdsWait or window.holdsWarn, y)
+    y = Line(window.holdsWarn, y)
     local x = 0
     for n, width in ipairs({ KEY_W, MODE_W, WHAT_W, TO_W }) do
         local label = window.cols[n]
@@ -449,11 +476,10 @@ function UI.Refresh()
             local row = Row(used, i, j)
             local first = j == 1
             row.key:SetShown(first)
-            row.key.full = capture and capture.row == row and TEXT.press
-                or (hold.key and Model.Label(hold.key) or TEXT.setKey)
-            row.key:SetText(row.key.full)
+            local name = hold.key and Model.Label(hold.key) or nil
+            ShowKey(row.key, name, name, capture ~= nil and capture.row == row)
             row.key:ClearAllPoints()
-            Place(row.key, 0, y)
+            Place(row.key, 0, y + (LINE - KEY_H) / 2)
             row.mode:SetShown(first)
             row.mode:ClearAllPoints()
             Place(row.mode, KEY_W + ROW_GAP, y)
@@ -498,7 +524,14 @@ function UI.Refresh()
     window.profiles:ClearAllPoints()
     window.profiles:SetPoint("LEFT", window.profileLabel, "RIGHT", GAP, 0)
     window.profiles:GenerateMenu()
-    y = Line(window.later, y + LINE + GAP * 2, 0)
+    y = Line(window.later, y + LINE + GAP * 2, GAP)
+    window.rule:ClearAllPoints()
+    Place(window.rule, 0, y)
+    window.rule:SetPoint("TOPRIGHT", window, "TOPRIGHT", -EDGE, -y)
+    window.rule:SetShown(said ~= nil)
+    y = y + RULE_H + GAP
+    window.output:SetText(said or "")
+    y = math.max(Line(window.output, y, 0), y + OUTPUT_H)
     window:SetHeight(y + EDGE)
     shell:SetHeight(y + EDGE)
 end

@@ -29,28 +29,36 @@ check(#window.boxes == 12 and window.boxes[1]:GetText() == "1" and window.boxes[
 check(has(window.keysDrop, "The keys of Action Bar 5 (hidden)"), "a bar that is off is marked hidden")
 check(window.h and window.h > 200, "the window has a height")
 
+local PROMPT = SETTINGS_BIND_KEY_TO_COMMAND_OR_CANCEL
+local function waits(button) return button.selected == true and W.focus ~= nil end
 print("== a modifier key: its line stands at once")
 clickOn(window.addHold)
 local holds = NS.Profiles.Data().holds
 check(#holds == 1 and holds[1].key == false, "Add a modifier key adds its line right away, the key still to be set")
-check(rows[1].key:IsShown() and rows[1].key:GetText() == NS.Window.TEXT.setKey and W.focus == nil,
-    "its key button reads Set key and waits for nothing: " .. tostring(rows[1].key:GetText()))
+check(rows[1].key:IsShown() and rows[1].key:GetText() == NOT_BOUND and W.focus == nil and not rows[1].key.selected,
+    "its key button reads Not Bound and waits for nothing: " .. tostring(rows[1].key:GetText()))
+check(rows[1].key.template == "KeyBindingFrameBindingButtonTemplate" and window.boxes[1].template == rows[1].key.template,
+    "the key button and the twelve boxes are the game's own key binding button")
+check(window.output:GetText() == "" and not window.rule:IsShown(), "the line at the foot is empty, no rule over it")
 clickOn(rows[1].key)
-check(rows[1].key:GetText() == NS.Window.TEXT.press and W.focus ~= nil, "clicked, the key button waits for the key")
+check(waits(rows[1].key) and rows[1].key:GetText() == NOT_BOUND, "clicked, the key button is lit and waits; its text stays")
+check(window.output:GetText() == PROMPT:format("Modifier key 1", "ESCAPE") and window.rule:IsShown(),
+    "the line at the foot: " .. tostring(window.output:GetText()))
 check(rows[1].mode:IsShown() and rows[1].what:IsShown() and rows[1].to.Text:GetText() == "Action Bar 2",
     "the rest of the line is there already: Hold or Tap, what changes, the bar")
-check(window.holdsWait:IsShown() and not window.holdsWarn:IsShown(), "while it waits, the line under the heading says what to press")
+check(window.holdsWarn:IsShown(), "the warning under the heading stays")
 typeKey("LSHIFT")
 check(holds[1].key == false and W.focus ~= nil, "Shift alone is nothing and it still waits")
 typeKey("Z")
 check(#holds == 1 and holds[1].key == "Z", "Z is the modifier key")
-check(W.focus == nil and window.addHold:GetText() == NS.Window.TEXT.addHold, "the wait is over")
+check(W.focus == nil and not rows[1].key.selected and window.output:GetText() == KEY_BOUND,
+    "the wait is over, the button is no longer lit, the foot says: " .. tostring(window.output:GetText()))
 local row = rows[1]
 check(row.key:IsShown() and row.key:GetText() == "Z", "its row shows the key")
 check(row.what.Text:GetText() == "Action keys press", "what changes: " .. tostring(row.what.Text:GetText()))
 check(row.to.Text:GetText() == "Action Bar 2", "the bar: " .. tostring(row.to.Text:GetText()))
 check(row.note:GetText() == "1 2 3 4 5 6 SHIFT-1 press Action Bar 2.", "the line under it: " .. tostring(row.note:GetText()))
-check(window.holdsWarn:IsShown() and window.holdsWarn:GetText() == NS.Window.TEXT.holdsWarn and not window.holdsWait:IsShown(),
+check(window.holdsWarn:IsShown() and window.holdsWarn:GetText() == NS.Window.TEXT.holdsWarn,
     "the warning stands under the heading again")
 press("Z")
 press("2")
@@ -60,11 +68,11 @@ release("Z")
 
 print("== a mouse button as a modifier key")
 clickOn(window.addHold)
-check(#holds == 2 and rows[2].key:GetText() == NS.Window.TEXT.setKey and W.focus == nil, "a second line stands, its key to be set")
+check(#holds == 2 and rows[2].key:GetText() == NOT_BOUND and W.focus == nil, "a second line stands, its key to be set")
 clickOn(rows[2].key, "Button4")
 check(holds[2].key == false, "a mouse button on a key button that is not waiting sets nothing")
 clickOn(rows[2].key)
-check(rows[2].key:GetText() == NS.Window.TEXT.press, "clicked, it waits")
+check(waits(rows[2].key) and not rows[1].key.selected, "clicked, it waits, and only it is lit")
 clickOn(rows[2].key, "Button4")
 check(holds[2].key == "BUTTON4" and rows[2].key:GetText() == "BUTTON4", "mouse button 4, clicked on the waiting button, is its key")
 -- the game's name for it is wider than the button
@@ -89,13 +97,14 @@ check(window.cols[1]:IsShown() and window.cols[1]:GetText() == "Key" and window.
 clickOn(window.addHold)
 clickOn(rows[3].key)
 typeKey("ESCAPE")
-check(#holds == 3 and holds[3].key == false and W.focus == nil and rows[3].key:GetText() == NS.Window.TEXT.setKey,
-    "Escape ends the wait; the line stays, its key to be set")
+check(#holds == 3 and holds[3].key == false and W.focus == nil and rows[3].key:GetText() == NOT_BOUND
+    and window.output:GetText() == "",
+    "Escape ends the wait; the line stays, its key to be set, the foot is empty")
 press("Z")
 check(GetBindingAction("3", true) == "MULTIACTIONBAR1BUTTON3", "a line with no key yet changes nothing for the others")
 release("Z")
 clickOn(window.addHold)
-check(#holds == 3 and rows[3].key:GetText() == NS.Window.TEXT.setKey and W.focus == nil,
+check(#holds == 3 and rows[3].key:GetText() == NOT_BOUND and W.focus == nil,
     "Add again, a line still without a key: no other line is added, nothing waits")
 clickOn(rows[3].less)
 check(#holds == 2 and not rows[3].key:IsShown(), "its minus takes the line off")
@@ -121,7 +130,11 @@ check(#NS.Profiles.Data().holds == 1 and not rows[2].key:IsShown(), "minus on a 
 
 print("== a key changed in place")
 clickOn(rows[1].key)
-check(rows[1].key:GetText() == NS.Window.TEXT.press, "a click on the key waits for a new one")
+check(waits(rows[1].key) and rows[1].key:GetText() == "Z", "a click on the key waits for a new one, the old one still shown")
+clickOn(rows[1].key)
+check(W.focus == nil and not rows[1].key.selected and NS.Profiles.Data().holds[1].key == "Z" and window.output:GetText() == "",
+    "a second click on the lit button ends the wait, the key as it was")
+clickOn(rows[1].key)
 typeKey("X")
 check(NS.Profiles.Data().holds[1].key == "X" and rows[1].key:GetText() == "X", "X it is")
 check(GetBindingAction("Z", true) == "TOGGLESHEATH", "Z does what it did before")
@@ -129,9 +142,10 @@ check(GetBindingAction("Z", true) == "TOGGLESHEATH", "Z does what it did before"
 print("== a right-click on the key button")
 local before = GetBindingAction("X", true)
 clickOn(rows[1].key)
-check(rows[1].key:GetText() == NS.Window.TEXT.press and W.focus ~= nil, "it waits")
+check(waits(rows[1].key), "it waits")
 clickOn(rows[1].key, "RightButton")
-check(W.focus == nil and NS.Profiles.Data().holds[1].key == false and rows[1].key:GetText() == NS.Window.TEXT.setKey,
+check(W.focus == nil and NS.Profiles.Data().holds[1].key == false and rows[1].key:GetText() == NOT_BOUND
+    and not rows[1].key.selected and window.output:GetText() == "",
     "a right-click while it waits: the wait is over and the key is emptied: " .. tostring(rows[1].key:GetText()))
 check(#NS.Profiles.Data().holds == 1 and before:find("FallensModifierKeysHold", 1, true) ~= nil
     and not GetBindingAction("X", true):find("FallensModifierKeysHold", 1, true),
@@ -140,7 +154,7 @@ clickOn(rows[1].key)
 typeKey("X")
 check(NS.Profiles.Data().holds[1].key == "X", "X is set again")
 clickOn(rows[1].key, "RightButton")
-check(NS.Profiles.Data().holds[1].key == false and W.focus == nil and rows[1].key:GetText() == NS.Window.TEXT.setKey,
+check(NS.Profiles.Data().holds[1].key == false and W.focus == nil and rows[1].key:GetText() == NOT_BOUND,
     "a right-click on a set key empties it, and nothing waits")
 clickOn(rows[1].key)
 typeKey("X")
@@ -149,14 +163,16 @@ check(NS.Profiles.Data().holds[1].key == "X" and rows[1].key:GetText() == "X", "
 print("== a key box")
 local list
 clickOn(window.boxes[8])
-check(W.focus ~= nil and window.boxes[8]:GetText() == NS.Window.TEXT.waiting, "a click on box 8 waits for its key")
-check(window.keysNote:GetText() == NS.Window.TEXT.waitSpot:format(8), "the note says what to press")
+check(waits(window.boxes[8]) and not window.boxes[7].selected, "a click on box 8: it is lit and waits for its key")
+check(window.output:GetText() == PROMPT:format("Action key 8", "ESCAPE") and window.keysNote:GetText() == NS.Window.TEXT.keysNote,
+    "the line at the foot says what to press: " .. tostring(window.output:GetText()))
 typeKey("LSHIFT")
 check(W.focus ~= nil and list == nil, "Shift alone is nothing and it still waits; the bar's keys are still in use")
 typeKey("Q")
 list = NS.Profiles.Data().keys.list
 check(list ~= nil and window.keysDrop.Text:GetText() == "Custom key list", "a key set: the bar's keys became a custom list")
-check(list[8] == "Q" and window.boxes[8]:GetText() == "Q" and W.focus == nil, "Q is the key of box 8, and the wait is over")
+check(list[8] == "Q" and window.boxes[8]:GetText() == "Q" and W.focus == nil and not window.boxes[8].selected
+    and window.output:GetText() == KEY_BOUND, "Q is the key of box 8, and the wait is over")
 check(window.keysNote:GetText() == NS.Window.TEXT.keysNote, "the note reads as before")
 check(window.boxes[1]:GetText() == "1" and window.boxes[9]:GetText() == "", "the other boxes are as they were")
 clickOn(window.boxes[2])

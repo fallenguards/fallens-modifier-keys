@@ -192,6 +192,12 @@ function CreateFrame(otype, name, parent, template)
     local f = setmetatable({ name = name, scripts = {}, attrs = {}, shown = true, otype = otype, parent = parent,
         protected = protected }, Frame)
     f.TitleText, f.CloseButton, f.Text = region(), region(), region()
+    -- the game's key binding button: lit while it waits for its key
+    f.template = template
+    if template == "KeyBindingFrameBindingButtonTemplate" then
+        f.SelectedHighlight = region()
+        function f:SetSelected(on) self.selected = on end
+    end
     if name then W.frames[name] = f; _G[name] = f end
     W.all[#W.all + 1] = f
     return f
@@ -234,6 +240,9 @@ end
 function IsKeyDown(key) return W.keyDown[key] or false end
 function IsMouseButtonDown(name) return W.keyDown[(name:upper())] or false end
 function GetBindingText(key) return key end
+GRAY_FONT_COLOR = { WrapTextInColorCode = function(_, text) return text end }
+NOT_BOUND, KEY_BOUND = "Not Bound", "Key Bound Successfully"
+SETTINGS_BIND_KEY_TO_COMMAND_OR_CANCEL = "Assign Binding for \"%s\" or Press %s to Cancel"
 function GetCursorPosition() return W.mouseX or 0, W.mouseY or 0 end
 -- the game's options: an addon's page is a frame shown when its name is picked in the list
 Settings = {
